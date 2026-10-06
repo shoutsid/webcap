@@ -71,10 +71,11 @@ describe('every tool surface describes the same service', () => {
 
   it('lists every paid product on every surface, not just free tools', async () => {
     // The specific regression: manifests used to advertise zero paid products.
+    // Five products now (video folded into webcap_capture), not six tools.
     const fx = makeApiFixture();
     try {
       const paid = serviceTools(fx.config).filter((t) => !t.free).map((t) => t.name);
-      expect(paid.length).toBe(6);
+      expect(paid.length).toBe(5);
       for (const path of ['/.well-known/openai-tools.json', '/.well-known/mcp-tools.json']) {
         const names = namesAndDescriptions(await manifest(fx, path)).map((t) => t.name);
         for (const name of paid) {
@@ -87,20 +88,21 @@ describe('every tool surface describes the same service', () => {
     }
   });
 
-  it('lists the free trial rail on every surface, so an agent can try before paying', async () => {
+  it('has retired the wallet-signed trial rail from every surface', async () => {
+    // Free access is the rolling per-IP allowance now (src/db/allowance.ts),
+    // which is not a tool: an agent calls the real product. Nothing on any
+    // surface may still promise a trial or ask for a wallet signature.
     const fx = makeApiFixture();
     try {
-      const trials = serviceTools(fx.config).filter((t) => t.name.includes('trial_')).map((t) => t.name);
-      expect(trials.length).toBeGreaterThanOrEqual(6);
+      const names = serviceTools(fx.config).map((t) => t.name);
+      expect(names.some((n) => n.includes('trial'))).toBe(false);
       for (const path of ['/.well-known/openai-tools.json', '/.well-known/mcp-tools.json']) {
-        const names = namesAndDescriptions(await manifest(fx, path)).map((t) => t.name);
-        for (const name of trials) {
-          expect(names, `${path} must advertise the free trial ${name}`).toContain(name);
-        }
+        const body = await manifest(fx, path);
+        const advertised = namesAndDescriptions(body).map((t) => t.name);
+        expect(advertised.some((n) => n.includes('trial')), `${path} still advertises a trial`).toBe(false);
+        expect(JSON.stringify(body)).not.toContain('personal_sign');
       }
-      for (const name of trials) {
-        expect(TOOLS.map((t) => t.name), `the MCP server must expose ${name}`).toContain(name);
-      }
+      expect(TOOLS.some((t) => t.name.includes('trial')), 'the MCP server still exposes a trial tool').toBe(false);
     } finally {
       await closeApiFixture(fx);
     }
@@ -145,6 +147,29 @@ describe('every tool surface describes the same service', () => {
       expect(card.version).toBe(status.version);
       expect(mcp.server?.version).toBe(status.version);
       expect(initVersion).toBe(status.version);
+    } finally {
+      await closeApiFixture(fx);
+    }
+  });
+
+  it('exposes the same parameter shape on the MCP server as in the catalog', async () => {
+    // The audit's loudest complaint was parameter inconsistency (`url` vs
+    // `urls`, an undeclared default). Matching names are not enough: this pins
+    // the property set, the required list and any oneOf alternatives per tool.
+    const fx = makeApiFixture();
+    try {
+      const catalog = new Map(serviceTools(fx.config).map((t) => [t.name, t]));
+      for (const tool of TOOLS) {
+        const entry = catalog.get(tool.name);
+        expect(entry, `catalog is missing ${tool.name}`).toBeDefined();
+        const mcp = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[]; oneOf?: unknown };
+        const cat = entry?.inputSchema as { properties?: Record<string, unknown>; required?: string[]; oneOf?: unknown };
+        expect(Object.keys(mcp.properties ?? {}).sort(), `${tool.name} parameters`).toEqual(
+          Object.keys(cat.properties ?? {}).sort(),
+        );
+        expect([...(mcp.required ?? [])].sort(), `${tool.name} required`).toEqual([...(cat.required ?? [])].sort());
+        expect(mcp.oneOf, `${tool.name} url|urls alternatives`).toEqual(cat.oneOf);
+      }
     } finally {
       await closeApiFixture(fx);
     }

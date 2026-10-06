@@ -132,7 +132,59 @@ describe('POST /mcp — remote MCP transport', () => {
       expect(body.result?.protocolVersion).toBe('2025-06-18');
       expect(body.result?.capabilities).toEqual({ tools: {} });
       expect(body.result?.serverInfo).toMatchObject({ name: 'webcap' });
-      expect(String(body.result?.instructions)).toContain('webcap_service');
+      expect(String(body.result?.instructions)).toContain('webcap_service_catalog');
+    } finally {
+      await close(h);
+    }
+  });
+
+  it('answers the mandatory server/discover over HTTP, so a modern client can pick a revision', async () => {
+    const h = makeX402Harness();
+    try {
+      const res = await h.app.inject({ method: 'POST', url: '/mcp', payload: rpc('server/discover') });
+      expect(res.statusCode).toBe(200);
+      const result = (res.json() as RpcResponse).result ?? {};
+      expect(result.resultType).toBe('complete');
+      expect(result.supportedVersions).toContain('2026-07-28');
+      expect(result._meta).toMatchObject({ 'io.modelcontextprotocol/serverInfo': { name: 'webcap' } });
+    } finally {
+      await close(h);
+    }
+  });
+
+  it('honours the MCP-Protocol-Version header on a modern tools/list', async () => {
+    // 2026-07-28 carries the revision in the header as well as in `_meta`; a
+    // header-only client must not be silently served the legacy shape.
+    const h = makeX402Harness();
+    try {
+      const res = await h.app.inject({
+        method: 'POST',
+        url: '/mcp',
+        headers: { 'mcp-protocol-version': '2026-07-28' },
+        payload: rpc('tools/list'),
+      });
+      expect(res.statusCode).toBe(200);
+      const result = (res.json() as RpcResponse).result ?? {};
+      expect(result.resultType).toBe('complete');
+      expect(Array.isArray(result.tools)).toBe(true);
+    } finally {
+      await close(h);
+    }
+  });
+
+  it('refuses an unknown protocol revision with -32022 and the versions it speaks', async () => {
+    const h = makeX402Harness();
+    try {
+      const res = await h.app.inject({
+        method: 'POST',
+        url: '/mcp',
+        headers: { 'mcp-protocol-version': '1999-01-01' },
+        payload: rpc('tools/list'),
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as RpcResponse;
+      expect(body.error?.code).toBe(-32022);
+      expect((body.error as { data?: { supported?: string[] } }).data?.supported).toContain('2026-07-28');
     } finally {
       await close(h);
     }
@@ -211,7 +263,9 @@ describe('POST /mcp — remote MCP transport', () => {
       expect(res.statusCode).toBe(200);
       const body = res.json() as RpcResponse;
       expect(body.result?.isError).toBe(true);
-      expect(((body.result?.content ?? []) as Array<{ text: string }>)[0]?.text).toContain('provide "url" or "urls"');
+      expect(((body.result?.content ?? []) as Array<{ text: string }>)[0]?.text).toContain(
+        'provide "url" (single page) or "urls"',
+      );
     } finally {
       await close(h);
     }

@@ -11,7 +11,7 @@ vi.mock('../../src/capture/video.js', async (importOriginal) => {
     ...actual,
     captureVideo: vi.fn(async () => ({
       buffer: Buffer.from([0x00, 0x01, 0x02, 0x03]),
-      mime: 'video/mp4',
+      mime: 'video/webm',
       bytes: 4,
     })),
   };

@@ -474,13 +474,6 @@ describe('mppscan/x402gle discovery metadata', () => {
     ['get', '/AGENT.md'],
     ['post', '/v1/register'],
     ['get', '/v1/og'],
-    ['post', '/v1/x402/trial'],
-    ['post', '/v1/x402/trial/extract'],
-    ['post', '/v1/x402/trial/audit'],
-    ['post', '/v1/x402/trial/map-lite'],
-    ['post', '/v1/x402/trial/analyze'],
-    ['get', '/v1/x402/trial/status'],
-    ['get', '/v1/x402/trial/quick'],
     // The remote MCP transport: public like every other free op, and it holds
     // no wallet — a paid tool call returns the challenge for the caller to pay.
     ['post', '/mcp'],
@@ -637,10 +630,10 @@ describe('mppscan/x402gle discovery metadata', () => {
     }
   });
 
-  it('declares security: [] on every free/public op (the explicit 34-list)', async () => {
+  it('declares security: [] on every free/public op (the explicit list)', async () => {
     const fx = makeApiFixture();
     try {
-      expect(FREE_OPS.length).toBe(36);
+      expect(FREE_OPS.length).toBe(29);
       const res = await getDoc(fx.app);
       const doc = res.json() as OpenapiDocView;
       for (const [method, path] of FREE_OPS) {

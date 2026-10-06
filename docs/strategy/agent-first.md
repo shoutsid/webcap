@@ -115,7 +115,7 @@ from 5 wallets.
 |---|---|---|
 | Reach | distinct discovery clients hitting a discovery surface | `endpoint_hits.user_agent` on `/.well-known/*`, `/llms.txt`, `/skill.md`, `/v1/x402/service` |
 | Challenge | 402 responses on a paid route | `endpoint_hits.status = 402` |
-| Try | trial claims (free, wallet-signed) | `trial_claims` |
+| Try | free product calls granted inside the rolling per-IP allowance | `allowance_uses` |
 | First pay | wallets with exactly one `revenue_ledger` row | `revenue_ledger` |
 | Repeat | wallets with >1 `revenue_ledger` row | `revenue_ledger` |
 | Recurring | active watches with credits > 0 | `watches` |
@@ -141,7 +141,7 @@ change of agent, human, or mood.
    the MCP/OpenAI tool manifests must agree on paths, methods, prices, and the
    payment flow. A surface that lies to an agent costs a real call.
 3. **Instrument the agent funnel.** A change is not "done" until its effect is
-   visible in `revenue_ledger`, `trial_claims`, or `endpoint_hits` attribution.
+   visible in `revenue_ledger`, `allowance_uses`, or `endpoint_hits` attribution.
 4. **Price for unattended spend.** Prefer flat, per-call, batch-friendly, and
    prepaid-credits pricing that a bot can budget. Never introduce a
    subscription or seat a machine cannot buy.

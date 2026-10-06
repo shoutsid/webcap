@@ -8,11 +8,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import type { Db } from '../db/index.js';
 import type { WebcapConfig } from '../config.js';
-import { makeTrialsRepo } from '../db/trials.js';
 import { HttpError, unprocessable } from '../util/errors.js';
-import { RateLimiter } from '../util/ratelimit.js';
 import { isRecord, validatedUrl } from './capture-parse.js';
-import { checkTrialClaim, claimHintFor, howToPayFor, remainingTrials, reserveTrialClaim, trialPaidNextFor, type TrialGate } from './trial-auth.js';
 import { x402Payer } from './x402.js';
 import { registerPaidRoute } from './query-body.js';
 import { OpenAICompatibleVisionAdapter, VisionError } from '../ml/vision/adapter.js';
@@ -129,43 +126,6 @@ function recordAnalyzeRevenue(req: FastifyRequest, config: WebcapConfig, urls: n
 export function registerMLRoutes(app: FastifyInstance, deps: AppDeps): void {
   const { config } = deps;
   const allowHosts = deps.captureAllowHosts;
-  const trialGate: TrialGate = {
-    trials: makeTrialsRepo(deps.db),
-    limiter: new RateLimiter(5, 60_000),
-    config,
-  };
-
-  // Free trial analyze: deterministic single-URL analysis (no model call even
-  // when the deployment has a model configured — model-backed analysis stays
-  // paid). The response carries the same deterministic shape as the paid
-  // fallback path.
-  app.post('/v1/x402/trial/analyze', async (req, reply) => {
-    const body = req.body;
-    if (!isRecord(body)) throw unprocessable('body must be an object', claimHintFor(config, 'analyze'));
-    const rawUrl = body.url;
-    if (typeof rawUrl !== 'string') throw unprocessable('url is required', claimHintFor(config, 'analyze'));
-    const payer = checkTrialClaim(req, reply, trialGate, 'analyze');
-    const url = validatedUrl(rawUrl, allowHosts);
-    const task = parseTask(body.task);
-    const context = typeof body.context === 'string' ? body.context : undefined;
-    reserveTrialClaim(trialGate, payer, 'analyze');
-    let captured;
-    try {
-      captured = await deps.captureStructured({ url, options: { includeHtml: true } });
-    } catch (err) {
-      trialGate.trials.release(payer, 'analyze');
-      throw new HttpError(502, 'capture_failed', `failed to capture page: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    const result = deterministicAnalyze({ structure: captured.structure, html: captured.html, pageUrl: url, task, context });
-    return {
-      task,
-      result,
-      trial: { payer, endpoint: 'analyze', priceUsdcUnits: 0, model: 'deterministic (trial)' },
-      paidNext: trialPaidNextFor(config, 'analyze'),
-      remaining: remainingTrials(trialGate.trials, payer),
-      howToPay: howToPayFor(config),
-    };
-  });
 
   /**
    * POST /v1/x402/analyze

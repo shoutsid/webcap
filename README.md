@@ -9,7 +9,7 @@
 GET  /v1/extract/preview?url=...  →  Free preview (title, headings, links)
 POST /v1/x402/capture             →  PNG/JPEG/PDF screenshot + persistent link
 POST /v1/x402/extract             →  Structured JSON (title, headings, markdown)
-POST /v1/x402/video               →  Scroll-capture video (MP4/WebM)
+POST /v1/x402/video               →  Scroll-capture video (WebM/VP8)
 POST /v1/watches                  →  Scheduled monitoring with webhook alerts
 ```
 
@@ -35,7 +35,7 @@ POST /v1/watches                  →  Scheduled monitoring with webhook alerts
 | `POST /v1/x402/extract` | Structured page data as JSON: title, description, headings, paragraphs, links, images, word count, markdown. Batch up to 50 URLs per payment. | $0.01 |
 | `POST /v1/x402/audit` | SEO basics + link/OG health in one call | $0.002 |
 | `POST /v1/x402/map-lite` | Site URL list from sitemap/robots + 1-hop crawl (up to 50 URLs) | $0.002 |
-| `POST /v1/x402/video` | Scroll-capture a page as MP4/WebM video | $0.005 |
+| `POST /v1/x402/video` | Scroll-capture a page as WebM/VP8 video | $0.005 |
 | `POST /v1/watches` | Create a scheduled monitor (free to create, prepay 100-run packs) | $0.10–$1.00/pack |
 
 ### Bearer-token rail (no signing key)
@@ -123,21 +123,25 @@ there.) The npm release will be `@shoutsid/webcap` — the unscoped
 `webcap` name belongs to an unrelated package, and it is not published yet —
 so until then the remote endpoint above is the install-free option.
 
-Tools, all 18 of them (every one is also in
+Tools, all 8 of them (every one is also in
 `/.well-known/openai-tools.json` and `/.well-known/mcp-tools.json`):
 
-- Discovery, free: `webcap_preview`, `webcap_og`, `webcap_service`,
-  `webcap_health`, `webcap_agent_funnel`
-- Free trial rail, one claim per wallet per endpoint:
-  `webcap_trial_status`, `webcap_trial_claim_capture`,
-  `webcap_trial_claim_extract`, `webcap_trial_claim_audit`,
-  `webcap_trial_claim_map_lite`, `webcap_trial_claim_analyze`,
-  `webcap_quick_thumbnail` (no wallet needed)
-- Paid: `webcap_capture`, `webcap_extract`, `webcap_audit`, `webcap_map_lite`,
-  `webcap_video`, `webcap_analyze`
+- Free: `webcap_service_catalog` (every paid endpoint and price, the network and
+  payTo, the how-to-pay flow, and the caller's remaining free allowance),
+  `webcap_preview` (bounded peek), `webcap_og`
+- Paid: `webcap_capture` (png/jpeg/pdf screenshot or PDF, or an mp4/webm scroll
+  video — always recorded as WebM/VP8), `webcap_extract` (one URL or a batch of up to 50), `webcap_audit`,
+  `webcap_map_lite`, `webcap_analyze`
 
-The trial tools are the point: an agent can claim one real extraction, audit or
-capture for free before it spends anything.
+The free rail is not a tool, it is an **allowance**: an unpaid call to any of
+the five paid tools runs the real product, free, inside a rolling per-IP window
+(default 50 calls / 24h). No wallet, signature or account — every response
+carries `x-webcap-allowance-*` headers saying where you stand, and when the
+window is spent the same call answers the normal x402 402 challenge. A failed
+call does not consume the allowance. Tunable with `WEBCAP_ALLOWANCE_CALLS`,
+`WEBCAP_ALLOWANCE_WINDOW_HOURS` and `WEBCAP_ALLOWANCE_GLOBAL_LIMIT`.
+
+Feedback is a REST rail, not a tool: `POST /v1/feedback`.
 
 ### Capture a screenshot
 
@@ -321,7 +325,7 @@ npm run audit:claims -- --base-url https://webcap.shoutsid.fyi  # against a depl
 The tests check the code; this checks the **claims** — it reads `README.md`,
 `/skill.md` and `/llms.txt` and verifies every `METHOD /path` they advertise is
 actually served, that every documented price equals the 402 challenge amount, and
-that the free trial menu quotes the same prices as the paid routes. It exits
+that the free surface describes the same prices as the paid routes. It exits
 non-zero on any failure, so it can gate a deploy. Issue #1 was filed by an agent
 that did this by hand; this is the same check as a command.
 

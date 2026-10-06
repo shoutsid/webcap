@@ -39,17 +39,19 @@ describe('server/video-parse A-S1 valid scroll-capture options', () => {
     });
   });
 
-  it('applies defaults (mp4, 5000ms, scrollSpeed 800, linear) when fields are omitted', () => {
+  it('applies defaults (webm, 5000ms, scrollSpeed 800, linear) when fields are omitted', () => {
     expect(parseVideoRequest({ url: 'https://example.com/' }, undefined)).toEqual({
       url: 'https://example.com/',
-      format: 'mp4',
+      format: 'webm',
       durationMs: 5000,
       scrollSpeed: 800,
       scrollEasing: 'linear',
     });
   });
 
-  it('accepts mp4 explicitly and both easings of the subset', () => {
+  it('accepts the mp4 legacy alias explicitly and both easings of the subset', () => {
+    // mp4 is kept as an accepted alias; the recording it produces is still WebM.
+    expect(parseVideoRequest({ url: 'https://example.com/', format: 'mp4' }, undefined).format).toBe('mp4');
     expect(parseVideoRequest({ url: 'https://example.com/', scrollEasing: 'linear' }, undefined).scrollEasing).toBe(
       'linear',
     );
@@ -128,7 +130,7 @@ describe('server/video-parse session + locale options', () => {
       ),
     ).toEqual({
       url: 'https://example.com/page',
-      format: 'mp4',
+      format: 'webm',
       durationMs: 5000,
       scrollSpeed: 800,
       scrollEasing: 'linear',

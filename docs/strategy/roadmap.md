@@ -61,6 +61,56 @@ The product already has excellent agent surfaces; one operational gap remains.
       cf-tunnel watchdog). `docker-compose.yml` notes the change; the ngrok
       URL in `artifacts/PROOF.md` stays as recorded history.
 
+- [x] **Cut the tool surface from 18 to 9, and answer the readability audit.**
+      mcpmetrics.io measured `tools/list` at 18 tools and scored its first
+      agent-readability audit 85: `webcap_service` was vague, `webcap_extract`
+      did not say `url` and `urls` were alternatives, the trial tools did not
+      report a malformed `signature`, and `maxUrls` did not state its default.
+      A wide surface is itself a readability problem — every extra tool is
+      another chance for an agent to pick wrong — so capabilities that differ
+      only by a mode are now one tool with a mode parameter:
+      `webcap_service_catalog` absorbs `webcap_health` and `webcap_trial_status`
+      (optional `payer`), `webcap_preview` absorbs `webcap_quick_thumbnail`
+      (`thumbnail: true`), the five per-product claim tools are one
+      `webcap_trial` (`product`), and `webcap_video` is `webcap_capture` with
+      `format: mp4|webm`. `webcap_agent_funnel` (operator telemetry broadcast to
+      anonymous callers) and `webcap_feedback` (a support rail no URL-to-artifact
+      job needs) left the tool surface, though both REST routes remain.
+      `webcap_extract` declares `oneOf url|urls` and rejects both, `payer` and
+      `signature` are validated locally with the exact message to sign, and every
+      bounded field states its default.
+      *Acceptance met: `tools/list` advertises 9 tools on all four surfaces, the
+      agreement test pins names **and** parameter shapes, and the deployment is
+      dual-era — `server/discover` plus per-request `_meta` for 2026-07-28
+      clients, `initialize` for older ones — so it no longer reads as
+      legacy-only.*
+
+- [x] **Replace the trial rail with a rolling free allowance per IP.** The
+      wallet-signed trial was still friction: an agent had to hold a wallet and
+      produce an EIP-191 signature before it could try anything, which is the
+      one thing the charter says never to put in front of a bot. Free access is
+      now an allowance, not a tool — an unpaid POST to any product path
+      (`capture`, `extract`, `audit`, `map-lite`, `video`, `analyze`) runs the
+      real product inside a rolling per-IP window (default 50 calls / 24h), and
+      the response carries `x-webcap-allowance-*` headers. When the window is
+      spent the same call answers the normal x402 402 challenge, so the paid
+      path is unchanged and the caller needs no new code. This is deliberately
+      generous growth spend: at the $0.0002 amortized compute cost, 50 calls/day
+      is ~$0.01 of compute per IP per day, bounded by a fleet-wide circuit
+      breaker (`WEBCAP_ALLOWANCE_GLOBAL_LIMIT`). Two costs are stated rather
+      than hidden: an IP is not an identity (proxies can mint windows — the
+      accepted price of removing wallet friction), and a free 50-URL extract
+      batch would cost as much as its price, so free batches cap at 10 URLs
+      while single URLs are uncapped. The retired rails are gone, not shimmed:
+      `trial-auth.ts`, `db/trials.ts`, the seven `/v1/x402/trial*` routes, the
+      `webcap_trial` tool and the `trial_claims` funnel stage.
+      *Acceptance met: `allowance_uses` is the new Try stage in
+      `GET /v1/agent-funnel` and in the charter's metrics table; the tool
+      surface is 8 tools; and `tests/api/allowance.test.ts` proves a granted
+      call bypasses both the x402 and MPP paywalls, that a failed call does not
+      consume the budget, and that a caller-supplied marker header cannot mint
+      a free call.*
+
 ## Phase 1 — The first paying agent loop
 
 Goal: one funded agent, calling unattended, more than once.

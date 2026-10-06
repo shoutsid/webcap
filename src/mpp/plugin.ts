@@ -23,6 +23,7 @@ import { withPrivateCacheControl, type x402ResourceServer } from '@x402/core/ser
 import type { PaymentRequirements, SettleResponse } from '@x402/core/types';
 import { DEFAULT_X402_MAX_TIMEOUT_MS, watchTopUpPriceUsdcUnits, type WebcapConfig } from '../config.js';
 import type { Db } from '../db/index.js';
+import { ALLOWANCE_MARKER } from '../server/allowance-gate.js';
 import { makeWatchRepo, type WatchRepo } from '../watch/store.js';
 import { buildX402Requirement, X402_AUDIT_PATH, X402_CAPTURE_PATH, X402_EXTRACT_PATH, X402_JOBS_PATH, X402_MAP_LITE_PATH, X402_TOPUP_PATH, X402_VIDEO_PATH, X402_ANALYZE_PATH, X402_ANALYZE_BATCH_PATH } from '../server/x402/routes.js';
 import { buildWwwAuthenticate, parseWwwAuthenticate } from './challenge.js';
@@ -210,6 +211,10 @@ export function registerMppSettleHook(
   const settled = new WeakMap<FastifyRequest, SettleResponse>();
 
   app.addHook('onRequest', async (request) => {
+    // A rolling free allowance was granted for this call: do not settle it.
+    // The allowance hook runs ahead of this one (registered earlier in
+    // registerX402Middleware), so a free call is never charged through MPP.
+    if (request.headers[ALLOWANCE_MARKER] === 'granted') return;
     if (!isMppPaidPattern(request.method, request.url)) return;
     const authorizationHeader = request.headers.authorization;
     if (authorizationHeader === undefined || authorizationHeader.trim() === '') return;

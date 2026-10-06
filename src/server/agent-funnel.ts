@@ -9,14 +9,16 @@
  *   reach      discovery clients hitting the machine-readable surfaces
  *              (llms.txt, skill.md, /.well-known/*, openapi, x402 service)
  *   challenge  402s handed to paid routes (i.e. agents that found a price)
- *   trial      free trial claims (wallet-signed), the last no-cost step
+ *   freeAllowance  free product calls granted by the rolling per-IP window,
+ *              the last no-cost step (replaced wallet-signed trial claims)
  *   paid       settled calls + distinct paying wallets (revenue_ledger)
  *   retention  first-pay vs repeat wallets — one looping wallet is not demand
  *   recurring  watches holding credits (the recurring rail)
  *
- * Aggregate only: counts and client identities, never a raw payer address
- * (endpoint_hits stores a sha256 slice; trial_claims/revenue_ledger payers are
- * never returned). Public and unauthenticated, mirroring /v1/status.
+ * Aggregate only: counts and caller buckets, never a raw payer or IP address
+ * (endpoint_hits stores a sha256 slice; allowance buckets are salted hashes and
+ * revenue_ledger payers are never returned). Public and unauthenticated,
+ * mirroring /v1/status.
  *
  * See docs/strategy/agent-first.md (north star) and docs/strategy/metrics.md.
  */
@@ -61,10 +63,11 @@ export interface AgentFunnel {
     readonly total: number;
     readonly topEndpoints: EndpointCount[];
   };
-  readonly trial: {
-    readonly claims: number;
-    readonly wallets: number;
-    readonly byEndpoint: EndpointCount[];
+  readonly freeAllowance: {
+    /** Free product calls granted in the window (every product, keyed by IP). */
+    readonly grants: number;
+    /** Distinct caller buckets that received at least one grant. */
+    readonly callers: number;
   };
   readonly paid: {
     readonly calls: number;
@@ -86,7 +89,7 @@ function emptyFunnel(windowHours: number): AgentFunnel {
     windowHours,
     reach: { discoveryRequests: 0, topClients: [] },
     challenge: { total: 0, topEndpoints: [] },
-    trial: { claims: 0, wallets: 0, byEndpoint: [] },
+    freeAllowance: { grants: 0, callers: 0 },
     paid: { calls: 0, wallets: 0, revenueUsdcUnits: 0 },
     retention: { firstPayWallets: 0, repeatWallets: 0 },
     recurring: { activePaidWatches: 0 },
@@ -98,7 +101,7 @@ export function agentFunnel(db: Db, hoursBack = 168): AgentFunnel {
   const out = emptyFunnel(hoursBack);
   const reach = { ...out.reach, topClients: [] as ClientCount[] };
   const challenge = { ...out.challenge, topEndpoints: [] as EndpointCount[] };
-  const trial = { ...out.trial, byEndpoint: [] as EndpointCount[] };
+  const freeAllowance = { ...out.freeAllowance };
   const paid = { ...out.paid };
   const retention = { ...out.retention };
   const recurring = { ...out.recurring };
@@ -140,22 +143,19 @@ export function agentFunnel(db: Db, hoursBack = 168): AgentFunnel {
     /* endpoint_hits may not exist yet */
   }
 
-  // trial — wallet-signed free claims.
+  // freeAllowance — the free calls the rolling per-IP window granted. This is
+  // the funnel's no-cost step now that wallet-signed trials are gone: it is the
+  // stage that has to convert into `paid` below.
   try {
     const total = db
-      .prepare<[string], { n: number; wallets: number }>(
-        'SELECT COUNT(*) AS n, COUNT(DISTINCT payer) AS wallets FROM trial_claims WHERE created_at >= ?',
+      .prepare<[string], { n: number; callers: number }>(
+        'SELECT COALESCE(SUM(cost), 0) AS n, COUNT(DISTINCT ip_hash) AS callers FROM allowance_uses WHERE ts >= ?',
       )
       .get(since);
-    trial.claims = total?.n ?? 0;
-    trial.wallets = total?.wallets ?? 0;
-    trial.byEndpoint = db
-      .prepare<[string], EndpointCount>(
-        'SELECT endpoint, COUNT(*) AS count FROM trial_claims WHERE created_at >= ? GROUP BY endpoint ORDER BY count DESC',
-      )
-      .all(since);
+    freeAllowance.grants = total?.n ?? 0;
+    freeAllowance.callers = total?.callers ?? 0;
   } catch {
-    /* trial_claims may not exist yet */
+    /* allowance_uses may not exist yet */
   }
 
   // paid — settled calls and distinct wallets.
@@ -200,7 +200,7 @@ export function agentFunnel(db: Db, hoursBack = 168): AgentFunnel {
     windowHours: hoursBack,
     reach,
     challenge,
-    trial,
+    freeAllowance,
     paid,
     retention,
     recurring,
@@ -219,7 +219,7 @@ export function agentFunnelText(f: AgentFunnel): string {
     lines.push(`  ${c.client.padEnd(40).slice(0, 40)} ${String(c.requests).padStart(6)}`);
   }
   lines.push(`CHALLENGE    ${String(f.challenge.total).padStart(6)} 402s on paid routes`);
-  lines.push(`TRIAL        ${String(f.trial.claims).padStart(6)} claims from ${f.trial.wallets} wallets`);
+  lines.push(`FREE         ${String(f.freeAllowance.grants).padStart(6)} free calls from ${f.freeAllowance.callers} callers`);
   lines.push(`PAID         ${String(f.paid.calls).padStart(6)} calls from ${f.paid.wallets} wallets`);
   lines.push(`REVENUE      ${String(f.paid.revenueUsdcUnits).padStart(6)} USDC units`);
   lines.push(`RETENTION    ${f.retention.firstPayWallets} first-pay / ${f.retention.repeatWallets} repeat wallets (lifetime)`);

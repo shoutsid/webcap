@@ -53,6 +53,27 @@ export interface WebcapConfig {
   readonly cdpApiKey: { readonly id: string; readonly secret: string } | undefined;
   /** Amortized compute cost per paid request, in atomic 6-decimal USDC units (for the P&L ledger). */
   readonly computeCostUsdcUnitsPerRequest: number;
+  /**
+   * Rolling free allowance: free product calls per caller IP per window
+   * (WEBCAP_ALLOWANCE_CALLS). 0 disables the free rail entirely and every call
+   * returns the x402 402 challenge. This replaced the wallet-signed trials.
+   *
+   * Optional on purpose. `loadConfig` always sets it (default
+   * DEFAULT_ALLOWANCE_CALLS), but a hand-built config that omits it gets NO
+   * free rail rather than an accidental one — the same posture as
+   * `previewRateLimit`. Embedded/test configs therefore keep the pay-per-call
+   * contract unless they opt in.
+   */
+  readonly allowanceCalls?: number;
+  /** Allowance window length in hours (WEBCAP_ALLOWANCE_WINDOW_HOURS). Evaluated as a sliding window. */
+  readonly allowanceWindowHours?: number;
+  /**
+   * Fleet-wide free-call circuit breaker per window (WEBCAP_ALLOWANCE_GLOBAL_LIMIT).
+   * When the window total reaches this, free usage stops for everyone (callers
+   * still get a payable 402). 0 disables the breaker. This is a runaway-spend
+   * guard, not a policy cap — budget the free rail with allowanceCalls.
+   */
+  readonly allowanceGlobalLimit?: number;
   /** Optional owner contact email, surfaced as info.contact.email in the OpenAPI document (directory ownership verification). */
   readonly contactEmail?: string;
   /**
@@ -159,6 +180,19 @@ export const DEFAULT_X402_EXTRACT_PRICE_USDC_UNITS = 10_000; // $0.01 — a "mea
 export const DEFAULT_X402_AUDIT_PRICE_USDC_UNITS = 2000; // $0.002 — audit price
 export const DEFAULT_X402_VIDEO_PRICE_USDC_UNITS = 5_000; // $0.005 — video price (5x capture, below extract)
 export const DEFAULT_COMPUTE_COST_USDC_UNITS_PER_REQUEST = 200; // $0.0002 amortized compute cost/page-load (override with your real infra/TPU cost)
+
+/**
+ * Rolling free-allowance defaults. Deliberately generous: this is growth spend
+ * to seed usage, not a defensive cap, and at the $0.0002 amortized compute cost
+ * above, 50 calls/day/IP is ~$0.01 of compute per IP per day.
+ */
+export const DEFAULT_ALLOWANCE_CALLS = 50;
+export const DEFAULT_ALLOWANCE_WINDOW_HOURS = 24;
+/**
+ * Fleet-wide free-call circuit breaker per window. ~$4/day of worst-case
+ * compute if fully spent. A runaway-spend guard, not a policy cap.
+ */
+export const DEFAULT_ALLOWANCE_GLOBAL_LIMIT = 20_000;
 export const DEFAULT_PREVIEW_RATE_LIMIT = 10; // free preview requests/min/peer (override with WEBCAP_PREVIEW_RATE_LIMIT)
 
 // WEBCAP_* tunables; every default preserves the previous on-the-wire behavior.
@@ -332,6 +366,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WebcapConfig {
       env.WEBCAP_COMPUTE_COST_USDC_PER_REQUEST,
       DEFAULT_COMPUTE_COST_USDC_UNITS_PER_REQUEST,
     ),
+    allowanceCalls: parseNonNegativeInt(env.WEBCAP_ALLOWANCE_CALLS, DEFAULT_ALLOWANCE_CALLS),
+    allowanceWindowHours: parsePositiveInt(env.WEBCAP_ALLOWANCE_WINDOW_HOURS, DEFAULT_ALLOWANCE_WINDOW_HOURS),
+    allowanceGlobalLimit: parseNonNegativeInt(env.WEBCAP_ALLOWANCE_GLOBAL_LIMIT, DEFAULT_ALLOWANCE_GLOBAL_LIMIT),
     contactEmail: (env.WEBCAP_CONTACT_EMAIL ?? '').trim() || undefined,
     indexVerifyHash: (env.WEBCAP_402INDEX_VERIFY_HASH ?? '').trim() || undefined,
     glamaClaim: (env.WEBCAP_GLAMA_CLAIM ?? '').trim() || undefined,

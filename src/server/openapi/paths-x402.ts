@@ -153,9 +153,10 @@ export function x402Paths(config: WebcapConfig, ctx: PathContext): OpenapiPaths 
     '/v1/x402/video': {
       post: {
         tags: ['capture'],
-        summary: 'Scroll-capture a URL as an MP4/WebM video (paid, x402)',
+        summary: 'Scroll-capture a URL as a WebM/VP8 video (paid, x402)',
         description:
-          'Record a deadline-bounded scroll choreography of the page to an in-memory MP4/WebM video. ' +
+          'Record a deadline-bounded scroll choreography of the page to an in-memory WebM/VP8 video. ' +
+          'Chromium screencast records WebM only, so the artifact is always video/webm; format:"mp4" is accepted as a legacy alias and still returns WebM. ' +
           'Unpaid requests receive the x402 402 challenge; paying clients retry with PAYMENT-SIGNATURE. One payment per URL.',
         requestBody: {
           required: true,

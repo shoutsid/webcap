@@ -18,8 +18,10 @@ export function mcpPaths(_config: WebcapConfig, ctx: PathContext): OpenapiPaths 
         description:
           'The Model Context Protocol Streamable HTTP endpoint. An MCP host points at it directly ' +
           '("mcpServers": {"webcap": {"url": "https://<host>/mcp"}}) and gets the same tool set as the npm/stdio ' +
-          'server: webcap_preview, webcap_og, webcap_service, webcap_health, webcap_agent_funnel (free) plus ' +
-          'webcap_capture, webcap_extract, webcap_audit, webcap_map_lite, webcap_video, webcap_analyze (paid). ' +
+          'server: webcap_service_catalog, webcap_preview, webcap_og (all free), plus webcap_capture ' +
+          '(png/jpeg/pdf, or WebM/VP8 scroll video), webcap_extract, webcap_audit, webcap_map_lite and webcap_analyze (paid). ' +
+          'Every paid tool is also free while the caller\'s rolling per-IP allowance lasts, so an unpaid call runs ' +
+          'the real product and returns x-webcap-allowance-* headers before it ever 402s. ' +
           'Bodies are JSON-RPC 2.0 (initialize, tools/list, tools/call); a batch array is accepted. Free tools run ' +
           'here directly. This endpoint holds no wallet and no operator account key, so a paid tool call returns ' +
           'the live x402 402 challenge as its tool result, to be settled by the calling agent with its own x402 ' +

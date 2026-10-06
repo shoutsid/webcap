@@ -41,7 +41,7 @@ SELECT payer, COUNT(*) n FROM revenue_ledger
 |---|---|
 | Reach (discovery clients) | `GET /v1/agent-funnel` → `reach.topClients` |
 | Challenge (402s on paid routes) | `GET /v1/agent-funnel` → `challenge` |
-| Try (trial claims) | `GET /v1/agent-funnel` → `trial` |
+| Try (free allowance grants) | `GET /v1/agent-funnel` → `freeAllowance` |
 | First pay | `SELECT COUNT(*) FROM (SELECT payer FROM revenue_ledger GROUP BY payer HAVING COUNT(*)=1);` |
 | Repeat | `SELECT COUNT(*) FROM (SELECT payer FROM revenue_ledger GROUP BY payer HAVING COUNT(*)>1);` |
 | Recurring | `GET /v1/agent-funnel` → `recurring.activePaidWatches` |

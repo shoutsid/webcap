@@ -165,7 +165,7 @@ export function webPaths(config: WebcapConfig): OpenapiPaths {
         tags: ['discovery'],
         summary: 'A2A v1.0 agent card with the x402 payments section',
         description:
-          'One document for agent-card consumers: service capabilities, skills (free trials first), and the x402 ' +
+          'One document for agent-card consumers: service capabilities, skills (the free allowance first), and the x402 ' +
           'payment parameters (network, asset, payTo, facilitator). network/asset/payTo are null when x402 is disabled.',
         responses: {
           200: {
@@ -203,7 +203,7 @@ export function webPaths(config: WebcapConfig): OpenapiPaths {
         summary: 'Copy-paste tool definitions for LLM agents (OpenAI functions shape)',
         description:
           'One tool per agent-callable capability, free and paid: preview, OG, service catalog, health, agent funnel, ' +
-          'trial status, the five wallet-trial claims, the no-wallet thumbnail, and the six paid products with their ' +
+          'the rolling per-IP allowance, and the paid products with their ' +
           'prices. Each entry names the exact HTTPS endpoint it maps to. Free, no payment to read.',
         responses: {
           200: {

@@ -153,24 +153,6 @@ describe('error envelope for route-not-found and method-not-allowed', () => {
     });
   });
 
-  it('shows an example on a malformed trial-status payer 422', async () => {
-    await withApp(async (fx) => {
-      const res = await fx.app.inject({ method: 'GET', url: '/v1/x402/trial/status?payer=nope' });
-      expect(res.statusCode).toBe(422);
-      const detail = errorEnvelope(res).detail ?? {};
-      expect(detail['example']).toBe('GET /v1/x402/trial/status?payer=<lowercase-0x-address>');
-    });
-  });
-
-  it('shows an example on a url-less trial-quick 422', async () => {
-    await withApp(async (fx) => {
-      const res = await fx.app.inject({ method: 'GET', url: '/v1/x402/trial/quick' });
-      expect(res.statusCode).toBe(422);
-      const detail = errorEnvelope(res).detail ?? {};
-      expect(detail['example']).toBe('GET /v1/x402/trial/quick?url=https://example.com/');
-    });
-  });
-
   it('register 429 keeps retryAfterSeconds and points back at the register recipe', async () => {
     await withApp(async (fx) => {
       let res = await fx.app.inject({ method: 'POST', url: '/v1/register', payload: {} });

@@ -72,14 +72,15 @@ describe('capture/video recordVideo pipeline', () => {
       expect(stagingDir.startsWith(tmpdir())).toBe(true);
       expect(fakes.dirExistedAtCall).toEqual([true]);
       expect(result.buffer.equals(bytes)).toBe(true);
-      expect(result.mime).toBe('video/mp4');
+      // The mp4 alias is accepted, but recordVideo only produces WebM/VP8.
+      expect(result.mime).toBe('video/webm');
       expect(result.bytes).toBe(bytes.length);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it("maps webm format to the video/webm mime", async () => {
+  it('reports video/webm for the webm format too', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'video-pipeline-expect-'));
     const videoPath = join(dir, 'video.webm');
     await writeFile(videoPath, Buffer.from([9, 9, 9]));
@@ -203,7 +204,7 @@ describe('capture/video recordVideo pipeline', () => {
         { newContext: fakes.newContext },
       );
       expect(fakes.evaluatePixels).toHaveLength(VIDEO_MAX_SCROLL_STEPS);
-      expect(result.mime).toBe('video/mp4');
+      expect(result.mime).toBe('video/webm');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

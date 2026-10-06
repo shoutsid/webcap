@@ -145,7 +145,7 @@ on-chain. You pay USDC only, never ETH gas.
 | POST /v1/x402/extract | ${usdc(config.x402ExtractPriceUsdcUnits)} | Structured content (title, headings, paragraphs, links, images, markdown) from the page's main content — nav/cookie/sidebar/footer excluded; one payment covers a batch of up to 50 URLs |
 | POST /v1/x402/audit | ${usdc(config.x402AuditPriceUsdcUnits)} | SEO basics + link/OG health in one call (title, description, OG tags, link health) |
 | POST /v1/x402/map-lite | ${usdc(config.x402AuditPriceUsdcUnits)} | Site map in one call: URL list from sitemap/robots plus a 1-hop same-host crawl (maxUrls up to 50, default 20) |
-| POST /v1/x402/video | ${usdc(config.x402VideoPriceUsdcUnits)} | Scroll-capture of one URL as video (mp4/webm): base64 artifact |
+| POST /v1/x402/video | ${usdc(config.x402VideoPriceUsdcUnits)} | Scroll-capture of one URL as WebM/VP8 video: base64 artifact (format "mp4" is a legacy alias — the artifact is always video/webm) |
 | POST /v1/x402/analyze | ${usdc(config.x402ExtractPriceUsdcUnits)} | AI-powered visual analysis: classification, accessibility, layout, entities, sentiment |
 | POST /v1/x402/analyze/batch | ${usdc(config.x402ExtractPriceUsdcUnits)} | Batch AI analysis (up to 10 URLs, one payment) |
 | POST /v1/x402/watches/topup | ${usdc(watchTopUpPriceUsdcUnits('capture', config))}–${usdc(watchTopUpPriceUsdcUnits('extract', config))} | 100 scheduled re-capture runs for an existing watch (capture watch ${usdc(watchTopUpPriceUsdcUnits('capture', config))}, extract watch ${usdc(watchTopUpPriceUsdcUnits('extract', config))}) |
@@ -190,9 +190,9 @@ POST /v1/x402/map-lite
        "payment": {"payer": "0x…", "priceUsdcUnits": ${config.x402AuditPriceUsdcUnits}}}
 
 POST /v1/x402/video
-    {"url": "https://example.com", "format": "mp4"}   // format: mp4 | webm (default: mp4)
+    {"url": "https://example.com", "format": "webm"}   // format: mp4 | webm (default webm; mp4 is a legacy alias — recordings are always WebM/VP8)
     // options?: {"durationMs" (default 5000, at most 30000), "scrollSpeed" (default 800, at most 5000), "scrollEasing": "linear" | "ease-in-out", "viewport": {"width", "height"}, "auth"?: {"headers", "cookies"} (logged-in recordings), "stealth"?, "locale"?, "timezoneId"?}
-  200 {"artifact": {"mime": "video/mp4", "bytes": 1048576, "data": "<base64>"},
+  200 {"artifact": {"mime": "video/webm", "bytes": 1048576, "data": "<base64>"},
        "payment": {"payer": "0x…", "priceUsdcUnits": ${config.x402VideoPriceUsdcUnits}}}
 
 POST /v1/x402/analyze
@@ -212,15 +212,9 @@ POST /v1/x402/watches/topup
 
 ## Free endpoints (no payment)
 
-- GET /v1/extract/preview?url=… — bounded structured preview (title, headings, links, truncated markdown); rate-limited per IP
-- GET /v1/x402/trial/status?payer=<lowercase-0x> — trial menu: claimed/available endpoints + the exact claim recipe, plus the full priced paid catalog, howToPay and the recurring watch path (check before signing, and again after your free calls run out; payer is optional — omit it and the same menu comes back with claimed=[] and all five trials available)
-- GET /v1/x402/trial/quick?url=… — no-wallet JPEG thumbnail, 3/day per IP (zero-friction hook; full trials need a wallet signature)
-- POST /v1/x402/trial {"url", "payer", "signature"} — FREE full PNG capture, one per wallet; signature = EIP-191 personal_sign of exactly "Claim one free webcap trial capture for <payer>"
-- POST /v1/x402/trial/extract {"url", "payer", "signature"} — FREE single-URL extraction (no schema/model/batch), one per wallet; message endpoint "extract"
-- POST /v1/x402/trial/audit {"url", "payer", "signature"} — FREE SEO + link/OG audit, one per wallet; message endpoint "audit"
-- POST /v1/x402/trial/map-lite {"url", "payer", "signature"} — FREE site map capped at 10 URLs, one per wallet; message endpoint "map-lite"
-- POST /v1/x402/trial/analyze {"url", "task", "payer", "signature"} — FREE deterministic analysis, one per wallet; message endpoint "analyze"; task: classification|accessibility|layout|entities|sentiment
-- Trial messages are endpoint-bound: "Claim one free webcap trial {endpoint} for <payer>" with <payer> your lowercase 0x address (the legacy capture-only message still works for the capture trial). A repeat claim answers 409 with a paidNext pointer + the remaining list. Video has no trial (scroll-capture compute) — the capture trial is its free sample.
+- **Rolling free allowance — the products are free, no wallet needed.** An unpaid POST to any product path (capture, extract, audit, map-lite, video, analyze) runs the real product and returns it. You get a window of free calls per caller IP; every response carries x-webcap-allowance-limit, x-webcap-allowance-remaining, x-webcap-allowance-cost, x-webcap-allowance-window-seconds and x-webcap-allowance-granted, so you always know where you stand. When the window is spent the same call answers the normal x402 402 challenge — pay and retry. No signature, no account, no API key. A free extract batch is capped (10 URLs); a single URL is not, and one paid call still covers up to 50. A call that fails does not consume your allowance.
+- GET /v1/extract/preview?url=… — bounded structured preview (title, headings, links, truncated markdown); rate-limited per IP. A teaser: the real products are free inside the allowance above, so call those instead.
+- GET /v1/x402/service — the machine catalog: every paid endpoint with its exact price, the network, USDC asset, payTo, facilitator and the how-to-pay flow.
 - Tool manifests for framework wiring: ${config.publicBaseUrl}/.well-known/openai-tools.json (OpenAI functions shape) and ${config.publicBaseUrl}/.well-known/mcp-tools.json (MCP tools/list shape + the HTTPS endpoint per tool). Agent card (A2A v1.0): ${config.publicBaseUrl}/.well-known/agent-card.json.
 - Remote MCP endpoint (no install, no package, no account): POST ${config.publicBaseUrl}/mcp — Streamable HTTP, JSON-RPC 2.0 (initialize, tools/list, tools/call). Point an MCP host at it: {"mcpServers":{"webcap":{"url":"${config.publicBaseUrl}/mcp"}}}. Free tools run directly; this endpoint holds no wallet, so a paid tool call returns the live x402 402 challenge for you to settle with your own client.
 - GET /v1/og?url=… — Open Graph metadata (title, description, image, icon)
@@ -322,18 +316,12 @@ Base URL: ${config.publicBaseUrl}
 | Extract (batch of up to 50 URLs, one payment) | POST /v1/x402/extract {"url" or "urls", "schema"?, "options": {"maxContentWords"?, "auth"? {headers, cookies}, "stealth"?}} | ${usdc(config.x402ExtractPriceUsdcUnits)} |
 | Audit (SEO + OG + link health, one URL) | POST /v1/x402/audit {"url"} | ${usdc(config.x402AuditPriceUsdcUnits)} |
 | Map-lite (site URL list, one call) | POST /v1/x402/map-lite {"url", "maxUrls"? (default 20, at most 50)} | ${usdc(config.x402AuditPriceUsdcUnits)} |
-| Video (scroll-capture mp4/webm, one URL) | POST /v1/x402/video {"url", "format"?, "durationMs"?, "scrollSpeed"?, "scrollEasing"?, "options"? (viewport, auth {headers, cookies} for logged-in recordings, stealth, locale, timezoneId)} | ${usdc(config.x402VideoPriceUsdcUnits)} |
+| Video (scroll-capture WebM/VP8, one URL) | POST /v1/x402/video {"url", "format"?, "durationMs"?, "scrollSpeed"?, "scrollEasing"?, "options"? (viewport, auth {headers, cookies} for logged-in recordings, stealth, locale, timezoneId)} | ${usdc(config.x402VideoPriceUsdcUnits)} |
 | Analyze (AI visual analysis, one URL) | POST /v1/x402/analyze {"url", "task"} where task: classification\|accessibility\|layout\|entities\|sentiment | ${usdc(config.x402ExtractPriceUsdcUnits)} |
 | Analyze batch (up to 10 URLs, one payment) | POST /v1/x402/analyze/batch {"urls": string[], "task"} | ${usdc(config.x402ExtractPriceUsdcUnits)} |
 | Watch top-up (100 runs) | POST /v1/x402/watches/topup {"watchId", "runs": 100} | ${usdc(watchTopUpPriceUsdcUnits('capture', config))} (capture watch) / ${usdc(watchTopUpPriceUsdcUnits('extract', config))} (extract watch) |
 | Structured preview (truncated) | GET /v1/extract/preview?url=… | free, rate-limited per IP |
-| Trial menu (claimed/available + recipe + the paid catalog and howToPay; payer optional) | GET /v1/x402/trial/status?payer=\<lowercase-0x\> | free |
-| No-wallet thumbnail (3/day per IP) | GET /v1/x402/trial/quick?url=… | free |
-| Trial capture (full PNG, one per wallet) | POST /v1/x402/trial {"url", "payer", "signature"} where signature = personal_sign of "Claim one free webcap trial capture for \<payer\>" (lowercase address) | free, one claim per wallet per endpoint |
-| Trial extract (single URL, no schema/model) | POST /v1/x402/trial/extract {"url", "payer", "signature"} with endpoint "extract" in the message | free, one claim per wallet per endpoint |
-| Trial audit (SEO + OG + links) | POST /v1/x402/trial/audit {"url", "payer", "signature"} with endpoint "audit" in the message | free, one claim per wallet per endpoint |
-| Trial map-lite (capped at 10 URLs) | POST /v1/x402/trial/map-lite {"url", "payer", "signature"} with endpoint "map-lite" in the message | free, one claim per wallet per endpoint |
-| Trial analyze (deterministic, one URL) | POST /v1/x402/trial/analyze {"url", "task", "payer", "signature"} with endpoint "analyze" in the message; task: classification\|accessibility\|layout\|entities\|sentiment | free, one claim per wallet per endpoint |
+| Any product, inside your allowance | POST /v1/x402/{capture,extract,audit,map-lite,video,analyze} with no payment header | free while the rolling per-IP window lasts, then the same call 402s; state in x-webcap-allowance-* headers. Free extract batches cap at 10 URLs |
 | OG metadata | GET /v1/og?url=… | free |
 | Feedback (agent) | POST /v1/feedback {"message": "…", "category"?:"bug|suggestion|pricing|docs|integration|other", "endpoint"?:"POST /v1/x402/capture"} | free, rate-limited per client (60/hr); payer hashed; human form at GET /feedback |
 | Bearer-token rail (no signing key): register once, fund with a USDC transfer, then call with "Authorization: Bearer \<key\>" | POST /v1/register {"address"} → {apiKey}; POST /v1/invoice → {merchant, token, requiredUsdc}; then POST /v1/extract, POST /v1/audit, POST /v1/map-lite, POST /v1/video, POST /v1/analyze, POST /v1/analyze/batch, POST /v1/watches/{id}/topup (100-run pack) | 1 credit/call, watch packs at x402 parity, refunded on non-200; empty balance 402s with a top-up invoice |
@@ -387,39 +375,35 @@ rate-limited per IP — use it to peek at a page before paying; the paid
 extract returns the full text plus images, batches, and optional model
 extraction.
 
-## Free trials (one per wallet per endpoint, no payment)
+## Free allowance (no wallet, no signature, no account)
 
-GET ${config.publicBaseUrl}/v1/x402/trial/status?payer=\<lowercase-0x\> tells you
-which trials a wallet claimed and which are still available, plus the exact
-claim recipe — check it before signing. No wallet yet? Omit ?payer= entirely:
-the same menu comes back with claimed=[] and all five trials listed, so a
-wallet-less explorer still gets the recipe, the paid catalog and howToPay. The same response always lists every
-paid endpoint with its price (field: paid) and how to pay it (field: howToPay —
-the x402 flow below, with the same scheme/network/asset/payTo the 402 challenge
-uses), so a wallet that has used all five trials is still handed the concrete
-next call rather than an empty menu. Receipts, the 409 and the 429s carry
-howToPay as well. No wallet at all? GET
-${config.publicBaseUrl}/v1/x402/trial/quick?url=… serves a free JPEG thumbnail
-(3/day per IP).
+Every product is free inside a rolling per-IP window. POST any product path
+without a payment header and the real product runs:
 
-Each wallet gets one free result per endpoint: capture (full PNG) at POST
-${config.publicBaseUrl}/v1/x402/trial, extract (single URL, no schema/model)
-at …/trial/extract, audit at …/trial/audit, map-lite (capped at 10 URLs) at
-…/trial/map-lite, and deterministic analysis at …/trial/analyze {"url",
-"task"}. signature is the EIP-191 personal_sign of exactly
+  capture   POST ${config.publicBaseUrl}/v1/x402/capture   {"url", "format"?: png|jpeg|pdf|mp4|webm, "fullPage"?, "durationMs"?}
+  extract   POST ${config.publicBaseUrl}/v1/x402/extract   {"url"} or {"urls": [...]} (free batches cap at 10 URLs)
+  audit     POST ${config.publicBaseUrl}/v1/x402/audit     {"url"}
+  map-lite  POST ${config.publicBaseUrl}/v1/x402/map-lite  {"url", "maxUrls"?}
+  video     POST ${config.publicBaseUrl}/v1/x402/video     {"url", "format"?: mp4|webm, "durationMs"?}
+  analyze   POST ${config.publicBaseUrl}/v1/x402/analyze   {"url", "task"}
 
-Claim one free webcap trial {endpoint} for <payer>
+Every response states where you stand, in headers you can read without parsing
+the body:
 
-with {endpoint} one of capture|extract|audit|map-lite|analyze and \<payer\>
-your lowercase 0x address (ethers: wallet.signMessage(message)). The message
-is endpoint-bound — a signature for one trial cannot be replayed for another
-(the legacy capture-only message still works for the capture trial). A wallet
-that already claimed an endpoint gets 409 already_claimed with a paidNext
-pointer, the remaining list and howToPay; every 200 carries the result, a
-trial:{payer, endpoint, priceUsdcUnits:0} receipt, paidNext, remaining, and
-howToPay.
-Video has no trial (scroll-capture compute) — the capture trial is its free
-sample.
+  x-webcap-allowance-limit             free calls in this window
+  x-webcap-allowance-remaining         calls left after this one
+  x-webcap-allowance-cost             units this call consumed (a batch costs its URL count)
+  x-webcap-allowance-window-seconds    the length of the window
+  x-webcap-allowance-granted           true when this call was free
+
+It is a sliding window, not a daily reset, so the budget frees up continuously.
+When it is spent the same call answers the normal x402 402 challenge — pay it
+and retry; nothing else about the request changes. A call that fails (4xx/5xx)
+does NOT consume your allowance, so a bad URL costs you nothing.
+
+There is no menu to check and no signature to produce: just call the product.
+GET ${config.publicBaseUrl}/v1/x402/service lists every paid endpoint with its
+price and the how-to-pay flow for when the window runs out.
 
 ## Failure modes
 

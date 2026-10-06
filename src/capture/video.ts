@@ -8,9 +8,16 @@ import type { CaptureTimeouts } from './pipeline.js';
 import { cookiesForUrl } from './pipeline.js';
 import { DEFAULT_CAPTURE_TIMEOUT_CAP_MS, DEFAULT_CAPTURE_TIMEOUT_MS } from '../config.js';
 
+/**
+ * Requested container, kept for compatibility only. Playwright's recordVideo
+ * always records WebM/VP8 (its bundled ffmpeg has no MP4 muxer and no H.264
+ * encoder), so `mp4` is accepted as a legacy alias and both values yield
+ * WebM bytes; the response mime tells that truth.
+ */
 export type VideoFormat = 'mp4' | 'webm';
 
-export type VideoMime = 'video/mp4' | 'video/webm';
+/** The one mime every recording carries: Chromium screencast produces WebM/VP8. */
+export type VideoMime = 'video/webm';
 
 export type ScrollEasing = 'linear' | 'ease-in-out';
 
@@ -103,13 +110,16 @@ export class VideoCaptureError extends CaptureError {
   }
 }
 
-const MIME_BY_VIDEO_FORMAT: Record<VideoFormat, VideoMime> = {
-  mp4: 'video/mp4',
-  webm: 'video/webm',
-};
+/**
+ * Every recording carries this mime regardless of the requested format: the
+ * only artifacts captureVideo can produce are WebM/VP8. There is deliberately
+ * no container map — an mp4/webm split would be a lie.
+ */
+export const VIDEO_MIME: VideoMime = 'video/webm';
 
 export interface VideoCaptureRequest {
   readonly url: string;
+  /** Requested container (compatibility field): recordings are always WebM/VP8. */
   readonly format: VideoFormat;
   readonly durationMs: number;
   readonly scrollSpeed?: number;
@@ -345,12 +355,12 @@ async function recordToBuffer(
   if (buffer.length > VIDEO_INLINE_MAX_BYTES) {
     return {
       buffer: Buffer.alloc(0),
-      mime: MIME_BY_VIDEO_FORMAT[req.format],
+      mime: VIDEO_MIME,
       bytes: buffer.length,
       note: `video inline oversize (${buffer.length} bytes exceeds ${VIDEO_INLINE_MAX_BYTES} inline cap) for ${req.url}: bytes dropped, metadata kept`,
     };
   }
-  return { buffer, mime: MIME_BY_VIDEO_FORMAT[req.format], bytes: buffer.length };
+  return { buffer, mime: VIDEO_MIME, bytes: buffer.length };
 }
 
 /**
@@ -358,7 +368,8 @@ async function recordToBuffer(
  * tmp root, Playwright recordVideo context, deadline-bounded scroll
  * choreography, then close (finalizes the file) -> guard -> read -> Buffer.
  * Persistence stays with the route wiring (existing storeArtifact); this
- * returns the artifact-ready result. recordVideo only — no transcoding pipeline.
+ * returns the artifact-ready result. recordVideo only — no transcoding
+ * pipeline, so the artifact is always WebM/VP8.
  *
  * Orphan mitigation: the happy path removes the staging dir in `finally`,
  * but a SIGKILL/crash between mkdtemp and cleanup leaves `webcap-video-*`

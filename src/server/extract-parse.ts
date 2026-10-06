@@ -17,7 +17,15 @@ export function parseExtractUrls(body: unknown, allowHosts: readonly string[] | 
   if (!isRecord(body)) throw unprocessable('body must be an object');
   const rawBatch = body['urls'];
   const rawSingle = body['url'];
-  const rawUrls: readonly unknown[] = Array.isArray(rawBatch) ? rawBatch : typeof rawSingle === 'string' ? [rawSingle] : [];
+  const hasBatch = Array.isArray(rawBatch) && rawBatch.length > 0;
+  const hasSingle = typeof rawSingle === 'string' && rawSingle.trim() !== '';
+  // `url` and `urls` are alternatives, and the schema says so (`oneOf`). An
+  // agent that sends both is guessing; previously `urls` silently won and the
+  // `url` it also sent was dropped, which is worse than refusing loudly.
+  if (hasBatch && hasSingle) {
+    throw unprocessable('provide exactly one of url (string) or urls (string[]), not both');
+  }
+  const rawUrls: readonly unknown[] = hasBatch ? (rawBatch as readonly unknown[]) : hasSingle ? [rawSingle] : [];
   if (rawUrls.length === 0) throw unprocessable('provide url (string) or urls (string[])');
   if (rawUrls.length > MAX_EXTRACT_BATCH) throw unprocessable(`urls must be at most ${MAX_EXTRACT_BATCH} items`);
   return rawUrls.map((raw) => {

@@ -310,7 +310,12 @@ const videoRequestBody = {
   required: ['url'],
   properties: {
     url: { type: 'string', format: 'uri', description: 'The page to scroll-capture', example: 'https://example.com/' },
-    format: { type: 'string', enum: ['mp4', 'webm'], description: 'Video format (default mp4)' },
+    format: {
+      type: 'string',
+      enum: ['mp4', 'webm'],
+      description:
+        'Accepted for compatibility; recordings are always WebM/VP8 (mp4 is a legacy alias, default webm). The response artifact.mime always reports video/webm.',
+    },
     durationMs: { type: 'integer', description: 'Recording duration in milliseconds (default 5000, at most 30000)' },
     scrollSpeed: { type: 'integer', description: 'Pixels scrolled per choreography step (default 800, at most 5000)' },
     scrollEasing: { type: 'string', enum: ['linear', 'ease-in-out'], description: 'Scroll easing (default linear)' },
@@ -361,7 +366,7 @@ const videoResponse = (priceUsdcUnits: number): Json => ({
     artifact: {
       type: 'object',
       properties: {
-        mime: { type: 'string', enum: ['video/mp4', 'video/webm'] },
+        mime: { type: 'string', enum: ['video/webm'], description: 'Recordings are WebM/VP8 (Chromium screencast); no MP4 is produced' },
         bytes: { type: 'integer', example: 1_048_576 },
         data: { type: 'string', description: 'Base64-encoded video bytes' },
       },

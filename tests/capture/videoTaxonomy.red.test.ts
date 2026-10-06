@@ -141,7 +141,7 @@ describe('video V-S3 inline size cap (RED)', () => {
       // RED: no inline cap exists, so the full buffer resolves (no drop, no note).
       expect(result.buffer).toHaveLength(0);
       expect(result.bytes).toBe(cap + 1);
-      expect(result.mime).toBe('video/mp4');
+      expect(result.mime).toBe('video/webm');
       expect(String(noteOf(result))).toMatch(/drop|oversize|inline/i);
     } finally {
       await rm(dir, { recursive: true, force: true });

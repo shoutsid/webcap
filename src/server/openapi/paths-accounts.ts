@@ -202,7 +202,7 @@ export function accountPaths(config: WebcapConfig, ctx: PathContext): OpenapiPat
         tags: ['accounts'],
         summary: `Scroll-capture a page as video (paid, ${PRODUCT_CREDIT_COST} credit per call)`,
         description:
-          'The credit-metered video: same compute as POST /v1/x402/video (MP4/WebM scroll-capture) for a bearer token instead of a signature. 1 credit per call, refunded when the call does not return 200 (including 429 video-busy).',
+          'The credit-metered video: same compute as POST /v1/x402/video (WebM/VP8 scroll-capture; the artifact is always video/webm) for a bearer token instead of a signature. 1 credit per call, refunded when the call does not return 200 (including 429 video-busy).',
         requestBody: {
           required: true,
           content: { 'application/json': { schema: videoRequestBody } },

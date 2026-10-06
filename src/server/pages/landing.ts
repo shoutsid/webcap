@@ -261,7 +261,7 @@ ${topBar(bazaarCatalogUrl, 'landing')}
       <div class="price">
         <h3>Video</h3>
         <div class="amount">${esc(usdUnits(config.x402VideoPriceUsdcUnits))} <small>/ URL</small></div>
-        <p>Full-page scroll capture as MP4. For demos and archiving.</p>
+        <p>Full-page scroll capture as WebM video. For demos and archiving.</p>
         <span class="tag">POST /v1/x402/video</span>
       </div>
       <div class="price">

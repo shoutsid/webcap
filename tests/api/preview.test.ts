@@ -13,14 +13,12 @@ describe('GET /v1/extract/preview (free, rate-limited funnel)', () => {
     try {
       const res = await fx.app.inject({ method: 'GET', url: '/', headers: { accept: 'application/json' } });
       expect(res.statusCode).toBe(200);
-      const body = res.json() as { service: string; endpoints: { paid: Array<{ path: string }>; free: Array<{ path: string }> } };
+      const body = res.json() as { service: string; endpoints: { paid: Array<{ path: string }>; free: Array<{ path: string; note?: string }> } };
       expect(body.service).toBe('webcap');
       expect(body.endpoints.paid.map((p) => p.path)).toEqual(['POST /v1/x402/capture', 'POST /v1/x402/extract', 'POST /v1/x402/audit', 'POST /v1/x402/map-lite', 'POST /v1/x402/video', 'POST /v1/x402/analyze', 'POST /v1/x402/analyze/batch']);
-      const free = body.endpoints.free.map((p) => p.path);
-      expect(free).toContain('POST /v1/x402/trial');
-      expect(free).toContain('POST /v1/x402/trial/extract');
-      expect(free).toContain('GET /v1/x402/trial/status?payer=...');
-      expect(free).toContain('GET /v1/x402/trial/quick?url=...');
+      // The retired trial rail is gone; the rolling allowance replaces it.
+      expect(body.endpoints.free.some((e) => e.path.includes('/trial'))).toBe(false);
+      expect(body.endpoints.free.some((e) => String(e.note).includes('rolling free allowance'))).toBe(true);
     } finally {
       await closeApiFixture(fx);
     }
@@ -36,7 +34,7 @@ describe('GET /v1/extract/preview (free, rate-limited funnel)', () => {
         preview: { title: string; wordCount: number; markdown: string };
         truncated: boolean;
         upgrade: { endpoint: string };
-        trial: { endpoint: string; note: string };
+        freeAllowance: { note: string };
         paidUpgrade: { endpoint: string; priceUsdc: number; priceUsdcUnits: number; howToPay: string; guide: string };
       };
       expect(body.url).toBe('https://example.com/');
@@ -45,8 +43,7 @@ describe('GET /v1/extract/preview (free, rate-limited funnel)', () => {
       expect(typeof body.preview.markdown).toBe('string');
       expect(body.truncated).toBe(true);
       expect(body.upgrade.endpoint).toBe('POST /v1/x402/extract');
-      expect(body.trial.endpoint).toBe('POST /v1/x402/trial');
-      expect(body.trial.note).toContain('personal_sign');
+      expect(body.freeAllowance.note).toContain('rolling per-IP allowance');
       expect(body.paidUpgrade.endpoint).toBe('POST /v1/x402/extract');
       expect(body.paidUpgrade.priceUsdcUnits).toBe(fx.config.x402ExtractPriceUsdcUnits);
       expect(body.paidUpgrade.priceUsdc).toBe(fx.config.x402ExtractPriceUsdcUnits / USDC_SCALE);

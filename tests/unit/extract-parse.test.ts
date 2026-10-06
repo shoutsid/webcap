@@ -60,6 +60,21 @@ describe('server/extract-parse parseExtractUrls 50-boundary matrix', () => {
     expect(parseExtractUrls({ url: 'https://example.com/' }, undefined)).toEqual(['https://example.com/']);
   });
 
+  it('rejects a body that sends both url and urls with 422', () => {
+    // `url` and `urls` are alternatives (the schema declares `oneOf`). `urls`
+    // used to win silently and the `url` was dropped, which hides an agent's bug.
+    try {
+      parseExtractUrls({ url: 'https://example.com/', urls: ['https://example.com/a'] }, undefined);
+      expect.unreachable('expected parseExtractUrls to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      if (err instanceof HttpError) {
+        expect(err.status).toBe(422);
+        expect(err.message).toContain('not both');
+      }
+    }
+  });
+
   it.each([[51], [100]])('rejects a batch of %i urls with 422', (n) => {
     try {
       parseExtractUrls({ urls: batchUrls(n) }, undefined);

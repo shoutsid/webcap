@@ -213,7 +213,7 @@ describe('GET /.well-known/x402 + GET /.well-known/agent-card.json (machine disc
       expect(card.payments.payTo).toBe(
         fx.config.x402Network === undefined ? null : fx.config.x402PayTo,
       );
-      expect(card.skills.map((s) => s.id)).toEqual(['trial', 'preview', 'capture', 'extract', 'audit', 'map-lite', 'video', 'analyze', 'watch']);
+      expect(card.skills.map((s) => s.id)).toEqual(['free-allowance', 'preview', 'capture', 'extract', 'audit', 'map-lite', 'video', 'analyze', 'watch']);
     } finally {
       await closeApiFixture(fx);
     }
@@ -223,9 +223,10 @@ describe('GET /.well-known/x402 + GET /.well-known/agent-card.json (machine disc
     const fx = makeApiFixture();
     try {
       // Derived, not typed: the manifests used to list 9 free tools and no paid
-      // product at all, so the number here is the shared catalog's own length.
+      // product at all. The surface is now deliberately condensed to 9 tools, so
+      // growing it is a conscious edit here as well as in the catalog.
       const canonical = serviceTools(fx.config);
-      expect(canonical.length).toBeGreaterThan(9);
+      expect(canonical.length).toBe(8);
       for (const path of ['/.well-known/openai-tools.json', '/.well-known/mcp-tools.json']) {
         const res = await fx.app.inject({ method: 'GET', url: path });
         expect(res.statusCode).toBe(200);
@@ -236,8 +237,10 @@ describe('GET /.well-known/x402 + GET /.well-known/agent-card.json (machine disc
           expect(tool.endpoint?.path ?? '').toContain('/v1/');
         }
         const names = body.tools.map((t) => t.function?.name ?? t.name ?? '');
-        expect(names).toContain('webcap_trial_status');
-        expect(names).toContain('webcap_quick_thumbnail');
+        // The free rail is the rolling per-IP allowance, so it is not a tool
+        // of its own; the catalog carries the prices and the allowance state.
+        expect(names.some((n) => n.includes('trial'))).toBe(false);
+        expect(names).toContain('webcap_service_catalog');
         // The paid products must be discoverable from the manifest too.
         expect(names).toContain('webcap_extract');
         expect(names).toContain('webcap_capture');

@@ -7,14 +7,15 @@
  * so no import site changes.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { paymentMiddleware } from '@x402/fastify';
-import { x402ResourceServer, type FacilitatorClient } from '@x402/core/server';
+import { paymentMiddlewareFromHTTPServer } from '@x402/fastify';
+import { x402HTTPResourceServer, x402ResourceServer, type FacilitatorClient } from '@x402/core/server';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import type { WebcapConfig } from '../config.js';
 import type { Db } from '../db/index.js';
 import { makeRevenueRepo, type RevenueEntry } from '../db/revenue.js';
 import { makeWatchRepo } from '../watch/store.js';
 import { registerMppSettleHook } from '../mpp/plugin.js';
+import { ALLOWANCE_MARKER, registerAllowanceHook } from './allowance-gate.js';
 import { buildAllX402Routes } from './x402/routes.js';
 
 export { BAZAAR_EXAMPLE_PAYER, buildUnpaidBody, topUpOutputExample, type UnpaidBazaarMetadata } from './x402/challenges.js';
@@ -38,12 +39,26 @@ export function registerX402Middleware(
     throw new Error('x402 is enabled but no facilitator client was provided');
   }
   const resourceServer = new x402ResourceServer(facilitator).register(network, new ExactEvmScheme());
+  // The rolling free allowance registers FIRST: it decides the call and sets the
+  // marker header that the two hooks below consult, so a granted call never
+  // reaches a settle and a caller with no wallet still gets the real product.
+  registerAllowanceHook(app, config, db);
   // MPP settle hooks register BEFORE paymentMiddleware so they run first:
   // the settle onRequest verifies ahead of x402's verify, the settle onSend
   // consumes the settled marker ahead of x402's settle (single settlement).
   // Disabled MPP registers zero hooks. The SAME resourceServer is shared.
   registerMppSettleHook(app, config, db, resourceServer);
-  paymentMiddleware(app, buildAllX402Routes(config, makeWatchRepo(db)), resourceServer);
+
+  // Build the HTTP resource server ourselves (instead of paymentMiddleware) so
+  // one method can be wrapped: `requiresPayment` is the paywall's only gate, and
+  // returning false for an allowance-marked call is what makes the free rail
+  // work without the middleware charging it. The adapter reads request headers,
+  // so the marker the allowance hook set is visible here.
+  const httpServer = new x402HTTPResourceServer(resourceServer, buildAllX402Routes(config, makeWatchRepo(db)));
+  const baseRequiresPayment = httpServer.requiresPayment.bind(httpServer);
+  httpServer.requiresPayment = (context) =>
+    context.adapter.getHeader(ALLOWANCE_MARKER) === 'granted' ? false : baseRequiresPayment(context);
+  paymentMiddlewareFromHTTPServer(app, httpServer);
 
   // Post-settlement revenue hook: runs AFTER x402's onSend settle.
   // Only records revenue when settlement actually succeeded (PAYMENT-RESPONSE

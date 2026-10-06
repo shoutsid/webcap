@@ -23,7 +23,7 @@ export const X402_TOPUP_DESCRIPTION =
   'Top up a webcap watch with a 100-run pack, priced at the watch mode unit price x 100 (capture or extract)';
 export const X402_AUDIT_DESCRIPTION = 'Audit a URL for SEO basics + link/OG health in one call';
 export const X402_MAP_LITE_DESCRIPTION = 'Map a site to its URL list via sitemap/robots plus a 1-hop same-host crawl in one call';
-export const X402_VIDEO_DESCRIPTION = 'Scroll-capture a URL as an MP4/WebM video in one call';
+export const X402_VIDEO_DESCRIPTION = 'Scroll-capture a URL as a WebM/VP8 video in one call';
 export const X402_ANALYZE_DESCRIPTION = 'AI-powered visual analysis of a page screenshot (classification, accessibility, entities, sentiment, layout)';
 export const X402_MIME_TYPE = 'application/json';
 
@@ -254,7 +254,11 @@ export const VIDEO_INPUT_SCHEMA: Record<string, unknown> = {
   type: 'object',
   properties: {
     url: { type: 'string', description: 'The page to scroll-capture' },
-    format: { type: 'string', enum: ['mp4', 'webm'], description: 'Video format (default mp4)' },
+    format: {
+      type: 'string',
+      enum: ['mp4', 'webm'],
+      description: 'Accepted for compatibility; recordings are always WebM/VP8 (mp4 is a legacy alias, default webm)',
+    },
     durationMs: { type: 'integer', description: 'Recording duration in milliseconds (default 5000, at most 30000)' },
     scrollSpeed: { type: 'integer', description: 'Pixels scrolled per choreography step (default 800, at most 5000)' },
     scrollEasing: { type: 'string', enum: ['linear', 'ease-in-out'], description: 'Scroll easing (default linear)' },
@@ -278,7 +282,7 @@ export const VIDEO_INPUT_SCHEMA: Record<string, unknown> = {
 };
 
 export const VIDEO_OUTPUT_EXAMPLE: Record<string, unknown> = {
-  artifact: { mime: 'video/mp4', bytes: 1_048_576, data: 'aGVsbG8gd29ybGQ=' },
+  artifact: { mime: 'video/webm', bytes: 1_048_576, data: 'aGVsbG8gd29ybGQ=' },
   payment: { payer: BAZAAR_EXAMPLE_PAYER, priceUsdcUnits: 5000 },
 };
 

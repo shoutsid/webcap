@@ -109,11 +109,12 @@ describe('x402 video challenge identity (challenge == config == OpenAPI == bazaa
     expect(props['scrollEasing']).toMatchObject({ type: 'string', enum: ['linear', 'ease-in-out'] });
   });
 
-  it('VIDEO_OUTPUT_EXAMPLE prices the video at 5000 atomic units', () => {
+  it('VIDEO_OUTPUT_EXAMPLE prices the video at 5000 atomic units and reports video/webm', () => {
     const example = videoOutputExample();
     const payment = example['payment'] as Record<string, unknown>;
     expect(payment['priceUsdcUnits']).toBe(5_000);
     expect(payment['priceUsdcUnits']).toBe(config.x402VideoPriceUsdcUnits);
+    expect(example['artifact']).toMatchObject({ mime: 'video/webm' });
   });
 
   it('buildVideoBazaarExtension advertises the schema + the 5000-unit output example over POST json', () => {

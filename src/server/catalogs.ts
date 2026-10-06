@@ -103,7 +103,7 @@ export async function x402WellKnown(config: WebcapConfig) {
       {
         path: 'POST /v1/x402/video',
         usdc: config.x402VideoPriceUsdcUnits / USDC_SCALE,
-        description: 'Scroll-capture a URL as an MP4/WebM video in one call',
+        description: 'Scroll-capture a URL as a WebM/VP8 video in one call',
       },
       {
         path: 'POST /v1/x402/analyze',
@@ -127,13 +127,10 @@ export async function x402WellKnown(config: WebcapConfig) {
       { path: 'GET /v1/extract/preview?url=...', note: 'bounded structured preview (rate-limited)' },
       { path: 'GET /v1/og?url=...', note: 'Open Graph metadata' },
       { path: 'GET /v1/health', note: 'liveness + chain' },
-      { path: 'GET /v1/x402/trial/status?payer=...', note: 'trial menu per wallet (claimed/available + claim recipe + the priced paid catalog and howToPay)' },
-      { path: 'GET /v1/x402/trial/quick?url=...', note: 'no-wallet JPEG thumbnail, 3/day per IP' },
-      { path: 'POST /v1/x402/trial', note: 'free full PNG capture trial, one per wallet (EIP-191 proof)' },
-      { path: 'POST /v1/x402/trial/extract', note: 'free single-URL extraction trial, one per wallet' },
-      { path: 'POST /v1/x402/trial/audit', note: 'free SEO + link/OG audit trial, one per wallet' },
-      { path: 'POST /v1/x402/trial/map-lite', note: 'free site-map trial capped at 10 URLs, one per wallet' },
-      { path: 'POST /v1/x402/trial/analyze', note: 'free deterministic analysis trial, one per wallet' },
+      {
+        path: 'POST /v1/x402/{capture,extract,audit,map-lite,video,analyze}',
+        note: 'rolling free allowance: no wallet needed — an unpaid call runs the product free until the per-IP window is spent, then the same call answers the 402 challenge (X-Webcap-Allowance-* headers say where you stand)',
+      },
       { path: 'POST /v1/feedback', note: 'free feedback for agents and humans (message required; rate-limited 60/hr)' },
     ],
     openapi: `${base}/openapi.json`,
@@ -169,10 +166,10 @@ export async function agentCard(config: WebcapConfig) {
     },
     skills: [
       paid(
-        'trial',
-        'Free product trials (no USDC)',
-        'One free result per wallet per endpoint — capture (full PNG), extract (single URL), audit, map-lite, analyze — proven by EIP-191 personal_sign of "Claim one free webcap trial {endpoint} for {lowercase-0x}". Menu (also lists every paid endpoint with its price and how to pay): GET /v1/x402/trial/status?payer=0x…. Claim: POST /v1/x402/trial (+/extract, +/audit, +/map-lite, +/analyze). No-wallet thumbnail: GET /v1/x402/trial/quick?url=… (3/day/IP).',
-        ['free', 'trial', 'screenshot', 'extraction', 'audit', 'sitemap', 'analysis'],
+        'free-allowance',
+        'Free product calls (no wallet, no USDC)',
+        'Every product is free inside a rolling per-IP allowance: POST /v1/x402/capture, /extract, /audit, /map-lite, /video or /analyze with no payment header runs the real product and returns X-Webcap-Allowance-* headers; once the window is spent the same call answers the x402 402 challenge. No signature, no account. The catalog (GET /v1/x402/service) lists every paid endpoint with its price and how to pay.',
+        ['free', 'allowance', 'screenshot', 'extraction', 'audit', 'sitemap', 'analysis'],
       ),
       paid(
         'preview',
@@ -207,7 +204,7 @@ export async function agentCard(config: WebcapConfig) {
       paid(
         'video',
         'Video capture',
-        `Scroll-capture a URL as an MP4/WebM video — ${config.x402VideoPriceUsdcUnits / USDC_SCALE} USDC via x402`,
+        `Scroll-capture a URL as a WebM/VP8 video — ${config.x402VideoPriceUsdcUnits / USDC_SCALE} USDC via x402`,
         ['video', 'capture', 'x402', 'usdc'],
       ),
       paid(
@@ -338,13 +335,10 @@ export function frontDoorPayload(config: WebcapConfig) {
         { path: 'GET /v1/extract/preview?url=...', note: 'bounded structured preview (rate-limited)' },
         { path: 'GET /v1/og?url=...', note: 'OG metadata' },
         { path: 'GET /v1/health', note: 'liveness + chain' },
-        { path: 'GET /v1/x402/trial/status?payer=...', note: 'trial menu per wallet (claimed/available + claim recipe + the priced paid catalog and howToPay)' },
-        { path: 'GET /v1/x402/trial/quick?url=...', note: 'no-wallet JPEG thumbnail, 3/day per IP' },
-        { path: 'POST /v1/x402/trial', note: 'free full PNG capture trial, one per wallet (EIP-191 proof)' },
-        { path: 'POST /v1/x402/trial/extract', note: 'free single-URL extraction trial, one per wallet' },
-        { path: 'POST /v1/x402/trial/audit', note: 'free SEO + link/OG audit trial, one per wallet' },
-        { path: 'POST /v1/x402/trial/map-lite', note: 'free site-map trial capped at 10 URLs, one per wallet' },
-        { path: 'POST /v1/x402/trial/analyze', note: 'free deterministic analysis trial, one per wallet' },
+        {
+          path: 'POST /v1/x402/{capture,extract,audit,map-lite,video,analyze}',
+          note: 'rolling free allowance: no wallet needed — an unpaid call runs the product free until the per-IP window is spent, then the same call answers the 402 challenge (X-Webcap-Allowance-* headers say where you stand)',
+        },
         { path: 'POST /v1/feedback', note: 'free feedback channel (#bug #suggestion #pricing #docs #integration); human form at GET /feedback' },
       ],
       paid: [
@@ -352,7 +346,7 @@ export function frontDoorPayload(config: WebcapConfig) {
         { path: 'POST /v1/x402/extract', usdc: config.x402ExtractPriceUsdcUnits / USDC_SCALE, note: 'structured JSON; batch up to 50 URLs for one payment' },
         { path: 'POST /v1/x402/audit', usdc: config.x402AuditPriceUsdcUnits / USDC_SCALE, note: 'SEO basics + link/OG health in one call' },
         { path: 'POST /v1/x402/map-lite', usdc: config.x402AuditPriceUsdcUnits / USDC_SCALE, note: 'site URL list via sitemap/robots plus a 1-hop same-host crawl' },
-        { path: 'POST /v1/x402/video', usdc: config.x402VideoPriceUsdcUnits / USDC_SCALE, note: 'scroll-capture MP4/WebM video in one call' },
+        { path: 'POST /v1/x402/video', usdc: config.x402VideoPriceUsdcUnits / USDC_SCALE, note: 'scroll-capture WebM/VP8 video in one call' },
         { path: 'POST /v1/x402/analyze', usdc: config.x402ExtractPriceUsdcUnits / USDC_SCALE, note: 'AI visual analysis: classification, accessibility, entities, sentiment' },
         { path: 'POST /v1/x402/analyze/batch', usdc: config.x402ExtractPriceUsdcUnits / USDC_SCALE, note: 'batch AI analysis of up to 10 URLs for one payment' },
       ],

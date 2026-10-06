@@ -2,17 +2,11 @@ import type { FastifyInstance } from 'fastify';
 
 import type { Db } from '../db/index.js';
 import type { WebcapConfig } from '../config.js';
-import { makeTrialsRepo } from '../db/trials.js';
 import { HttpError, unprocessable } from '../util/errors.js';
-import { RateLimiter } from '../util/ratelimit.js';
 import { validateCaptureUrl } from '../util/url.js';
 import { isRecord, validatedUrl } from './capture-parse.js';
-import { checkTrialClaim, howToPayFor, remainingTrials, reserveTrialClaim, trialPaidNextFor, type TrialGate } from './trial-auth.js';
 import { x402Payer } from './x402.js';
 import { registerPaidRoute } from './query-body.js';
-
-/** Trial map-lite caps the crawl at 10 URLs (paid goes to 50). */
-export const TRIAL_MAP_LITE_MAX_URLS = 10;
 
 export const MAP_LITE_DEFAULT_MAX_URLS = 20;
 export const MAP_LITE_MAX_URLS = 50;
@@ -211,24 +205,6 @@ export interface MapLiteRouteDeps {
 export function registerMapLiteRoute(app: FastifyInstance, deps: MapLiteRouteDeps): void {
   const { config } = deps;
   const allowHosts = deps.captureAllowHosts;
-  const trialGate: TrialGate = {
-    trials: makeTrialsRepo(deps.db),
-    limiter: new RateLimiter(5, 60_000),
-    config,
-  };
-  app.post('/v1/x402/trial/map-lite', async (req, reply) => {
-    const { url, maxUrls } = parseMapLiteRequest(req.body, allowHosts);
-    const payer = checkTrialClaim(req, reply, trialGate, 'map-lite');
-    reserveTrialClaim(trialGate, payer, 'map-lite');
-    const discovery = await discoverMapLiteUrls(url, Math.min(maxUrls, TRIAL_MAP_LITE_MAX_URLS), allowHosts);
-    return {
-      urls: discovery.urls,
-      trial: { payer, endpoint: 'map-lite', priceUsdcUnits: 0, maxUrlsCap: TRIAL_MAP_LITE_MAX_URLS },
-      paidNext: trialPaidNextFor(config, 'map-lite'),
-      remaining: remainingTrials(trialGate.trials, payer),
-      howToPay: howToPayFor(config),
-    };
-  });
   registerPaidRoute(app, '/v1/x402/map-lite', async (req) => {
     if (config.x402Network === undefined) {
       throw new HttpError(503, 'x402_disabled', 'x402 payment requires WEBCAP_CHAIN=base-sepolia or base');

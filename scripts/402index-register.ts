@@ -106,7 +106,7 @@ const routes: RouteSpec[] = [
     path: '/v1/x402/video',
     name: 'webcap — video (scroll-capture video)',
     description:
-      'Scroll-capture any URL as an MP4/WebM video in one call. Gasless x402 USDC payment on Base.',
+      'Scroll-capture any URL as a WebM/VP8 video in one call. Gasless x402 USDC payment on Base.',
     probeBody: '{"url":"https://example.com"}',
     priceUsd: 0.005,
     category: 'media',

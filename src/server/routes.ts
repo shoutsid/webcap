@@ -18,8 +18,7 @@ import {
   type WebcapConfig,
 } from '../config.js';
 import { makeRevenueRepo } from '../db/revenue.js';
-import { FAUCET_DAILY_LIMIT, makeFaucetRepo, makeTrialsRepo } from '../db/trials.js';
-import { checkTrialClaim, claimHintFor, howToPayFor, remainingTrials, reserveTrialClaim, trialPaidNextFor, trialStatusFor, type TrialGate } from './trial-auth.js';
+import { howToPayFor } from './how-to-pay.js';
 import { recordHit } from '../db/hits.js';
 import { CaptureError } from '../capture/errors.js';
 import { previewFallback } from '../capture/preview-fallback.js';
@@ -33,6 +32,8 @@ import { getCachedPreview, cachePreview } from '../db/preview-cache.js';
 import { runAuditCompute, runExtractCompute } from './product-cores.js';
 import { isRecord, parseFormat, parseOptions, validatedUrl } from './capture-parse.js';
 import { x402Payer } from './x402.js';
+import { allowanceGranted } from './allowance-gate.js';
+import { FREE_BATCH_MAX_URLS } from '../db/allowance.js';
 import { registerPaidRoute } from './query-body.js';
 import { computeAudit } from '../audit/checks.js';
 import type { AppDeps } from './server.js';
@@ -42,9 +43,18 @@ import { ogDebuggerHtml } from './pages/og-debugger.js';
 // Fixed 60s window for the preview per-peer budget; the preview limit itself
 // is configurable (WEBCAP_PREVIEW_RATE_LIMIT, default DEFAULT_PREVIEW_RATE_LIMIT).
 const RATE_LIMIT_WINDOW_MS = 60_000;
-// Trial claims per peer IP per minute: the DB one-claim-per-wallet bound is
-// the real sybil defense; this only protects the browser pool from bursts.
-const TRIAL_RATE_LIMIT_PER_MINUTE = 5;
+
+/**
+ * How many pages an extract request targets: the `urls` batch length, or 1 for
+ * the single-`url` form. Used only to bound free batches, so it reads the raw
+ * body rather than re-running the URL validation that runExtractCompute does.
+ */
+function extractTargetCount(body: unknown): number {
+  if (!isRecord(body)) return 0;
+  const urls = body['urls'];
+  if (Array.isArray(urls)) return urls.length;
+  return typeof body['url'] === 'string' ? 1 : 0;
+}
 
 export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   const { db, config } = deps;
@@ -55,10 +65,6 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   // fixed-window per-peer budget family as the preview route (separate
   // instance so the two free surfaces don't share one budget).
   const ogDebuggerLimiter = new RateLimiter(config.previewRateLimit ?? DEFAULT_PREVIEW_RATE_LIMIT, RATE_LIMIT_WINDOW_MS);
-  // Trial captures burn real browser compute, so the free-trial budget is a
-  // fixed small window of its own (one claim per wallet is enforced in the DB).
-  const trialLimiter = new RateLimiter(TRIAL_RATE_LIMIT_PER_MINUTE, RATE_LIMIT_WINDOW_MS);
-  const trials = makeTrialsRepo(db);
 
   // --- SEO: AI plugin manifest for ChatGPT/Claude/other AI assistants ---
   app.get('/.well-known/ai-plugin.json', async (_req, reply) => {
@@ -70,7 +76,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
         name_for_human: 'webcap',
         name_for_model: 'webcap',
         description_for_human: 'Web capture API: screenshot any URL, extract structured data, monitor for changes.',
-        description_for_model: 'webcap is a pay-per-call web capture API. Use it to screenshot URLs as PNG/JPEG/PDF, extract structured data (title, headings, links, markdown), and monitor pages for changes. Free preview: GET /v1/extract/preview?url=... Free trials (one per wallet per endpoint, EIP-191 personal_sign proof): POST /v1/x402/trial (capture), /trial/extract, /trial/audit, /trial/map-lite, /trial/analyze; menu at GET /v1/x402/trial/status?payer=...; no-wallet thumbnail at GET /v1/x402/trial/quick?url=.... Paid: POST /v1/x402/capture or POST /v1/x402/extract (x402 micropayments, USDC on Base). No API keys or accounts needed.',
+        description_for_model: 'webcap is a pay-per-call web capture API. Use it to screenshot URLs as PNG/JPEG/PDF, extract structured data (title, headings, links, markdown), and monitor pages for changes. Free preview: GET /v1/extract/preview?url=.... Free allowance: every paid product (capture, extract, audit, map-lite, video, analyze) is free inside a rolling per-IP window — just call it, no wallet needed; the response carries X-Webcap-Allowance-* headers, and once the window is spent the same call answers the x402 402 challenge. Paid: POST /v1/x402/capture or POST /v1/x402/extract (x402 micropayments, USDC on Base, no API keys or accounts).',
         auth: { type: 'none' },
         api: { type: 'openapi', url: `${base}/openapi.json` },
         logo_url: `${base}/icon.png`,
@@ -128,170 +134,27 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     };
   });
 
-  // Free trials: one result per wallet per endpoint (capture, extract, audit,
-  // map-lite, analyze), proven by EIP-191 personal_sign of an endpoint-bound
-  // message. Lets a funded (or soon-funded) agent experience each product
-  // before paying; the claim is reserved before compute runs and released on
-  // failure, so a transient browser error never burns the wallet's trial.
-  // Video stays paid-only (scroll-capture compute) — the capture trial is
-  // its free sample.
-  const trialGate: TrialGate = { trials, limiter: trialLimiter, config };
-  app.post('/v1/x402/trial', async (req, reply) => {
-    const body = isRecord(req.body) ? req.body : undefined;
-    const rawUrl = body?.url;
-    if (typeof rawUrl !== 'string') throw unprocessable('url is required', claimHintFor(config, 'capture'));
-    const payer = checkTrialClaim(req, reply, trialGate, 'capture');
-    const normalized = validatedUrl(rawUrl, allowHosts);
-    reserveTrialClaim(trialGate, payer, 'capture');
-    let result;
-    try {
-      result = await deps.capture({ url: normalized });
-    } catch (err) {
-      trials.release(payer, 'capture');
-      if (err instanceof CaptureError) throw new HttpError(502, 'capture_failed', err.message);
-      throw err;
-    }
-    const url = storeArtifact(deps.artifacts, config, normalized, result);
-    return {
-      artifact: { format: result.format, bytes: result.bytes, data: result.buffer.toString('base64'), url },
-      trial: { payer, endpoint: 'capture', priceUsdcUnits: 0 },
-      paidNext: trialPaidNextFor(config, 'capture'),
-      remaining: remainingTrials(trials, payer),
-      howToPay: howToPayFor(config),
-    };
-  });
-
-  // Free trial extract: deterministic single-URL structured extraction (no
-  // schema, no model, no batch — those stay paid). Same reserve/release
-  // discipline as the capture trial.
-  app.post('/v1/x402/trial/extract', async (req, reply) => {
-    const body = isRecord(req.body) ? req.body : undefined;
-    if (body !== undefined && ('urls' in body || 'schema' in body || 'model' in body)) {
-      throw unprocessable('trial extract is single-URL with no schema or model; batch + model live on the paid POST /v1/x402/extract');
-    }
-    const rawUrl = body?.url;
-    if (typeof rawUrl !== 'string') throw unprocessable('url is required', claimHintFor(config, 'extract'));
-    const payer = checkTrialClaim(req, reply, trialGate, 'extract');
-    const normalized = validatedUrl(rawUrl, allowHosts);
-    reserveTrialClaim(trialGate, payer, 'extract');
-    let captured;
-    try {
-      captured = await deps.captureStructured({ url: normalized, options: { includeHtml: false } });
-    } catch (err) {
-      trials.release(payer, 'extract');
-      if (err instanceof CaptureError) throw new HttpError(502, 'extract_failed', err.message);
-      throw err;
-    }
-    return {
-      results: [
-        {
-          url: normalized,
-          status: 'ok',
-          data: { ...captured.structure, classification: classifyPage({ structure: captured.structure, pageUrl: normalized }) },
-        },
-      ],
-      trial: { payer, endpoint: 'extract', priceUsdcUnits: 0 },
-      paidNext: trialPaidNextFor(config, 'extract'),
-      remaining: remainingTrials(trials, payer),
-      howToPay: howToPayFor(config),
-    };
-  });
-
-  // Free trial audit: full single-URL SEO + link/OG health audit.
-  app.post('/v1/x402/trial/audit', async (req, reply) => {
-    const body = isRecord(req.body) ? req.body : undefined;
-    const rawUrl = body?.url;
-    if (typeof rawUrl !== 'string') throw unprocessable('url is required', claimHintFor(config, 'audit'));
-    const payer = checkTrialClaim(req, reply, trialGate, 'audit');
-    const normalized = validatedUrl(rawUrl, allowHosts);
-    reserveTrialClaim(trialGate, payer, 'audit');
-    let captured;
-    try {
-      captured = await deps.captureStructured({ url: normalized, options: { includeHtml: true } });
-    } catch (err) {
-      trials.release(payer, 'audit');
-      if (err instanceof CaptureError) throw new HttpError(502, 'audit_failed', err.message);
-      throw err;
-    }
-    const checks = computeAudit({ structure: captured.structure, html: captured.html, pageUrl: normalized });
-    return {
-      audit: { url: normalized, ...checks },
-      trial: { payer, endpoint: 'audit', priceUsdcUnits: 0 },
-      paidNext: trialPaidNextFor(config, 'audit'),
-      remaining: remainingTrials(trials, payer),
-      howToPay: howToPayFor(config),
-    };
-  });
-
-  // Machine-readable trial menu: which trials this wallet claimed / can still
-  // claim, plus the exact claim recipe. Lets an agent check eligibility
-  // before spending a signature. No ?payer= → the same 200 menu with
-  // claimed=[] (a wallet-less bot exploring the free path gets the recipe,
-  // not a 422); a malformed payer still 422s so address typos stay loud.
-  app.get('/v1/x402/trial/status', async (req) => {
-    const raw = isRecord(req.query) ? req.query.payer : undefined;
-    if (raw === undefined) return trialStatusFor(trialGate, null);
-    if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(raw)) {
-      throw unprocessable('payer query parameter must be a 0x EVM address', {
-        example: 'GET /v1/x402/trial/status?payer=<lowercase-0x-address>',
-        guide: howToPayFor(config).guide,
-      });
-    }
-    return trialStatusFor(trialGate, raw.toLowerCase());
-  });
-
-  // No-wallet faucet: a small JPEG thumbnail for bots that cannot sign (3 per
-  // IP-hash per UTC day). The wallet trials above are the full product; this
-  // is the zero-friction hook that points at them.
-  const faucetLimiter = new RateLimiter(10, RATE_LIMIT_WINDOW_MS);
-  const faucet = makeFaucetRepo(db);
-  app.get('/v1/x402/trial/quick', async (req, reply) => {
-    const rawUrl = isRecord(req.query) ? req.query.url : undefined;
-    if (typeof rawUrl !== 'string')
-      throw unprocessable('url query parameter is required', {
-        example: 'GET /v1/x402/trial/quick?url=https://example.com/',
-        paidNext: trialPaidNextFor(config, 'capture'),
-      });
-    if (!faucetLimiter.allow(req.ip)) {
-      rejectRateLimited(reply, faucetLimiter, req.ip, 'faucet rate limit exceeded; use the paid capture endpoint', {
-        paidNext: trialPaidNextFor(config, 'capture'),
-        howToPay: howToPayFor(config),
-      });
-    }
-    const today = new Date().toISOString().slice(0, 10);
-    const ipHash = createHash('sha256').update(req.ip).digest('hex');
-    if (faucet.usedToday(ipHash, today) >= FAUCET_DAILY_LIMIT) {
-      throw new HttpError(429, 'faucet_exhausted', 'no-wallet thumbnail budget spent for today (3/day); claim a wallet trial or pay', {
-        trial: 'POST /v1/x402/trial',
-        paidNext: trialPaidNextFor(config, 'capture'),
-        howToPay: howToPayFor(config),
-      });
-    }
-    const normalized = validatedUrl(rawUrl, allowHosts);
-    let result;
-    try {
-      result = await deps.capture({ url: normalized, format: 'jpeg' });
-    } catch (err) {
-      if (err instanceof CaptureError) throw new HttpError(502, 'capture_failed', err.message);
-      throw err;
-    }
-    const usedToday = faucet.record(ipHash, today);
-    const url = storeArtifact(deps.artifacts, config, normalized, result);
-    return {
-      artifact: { format: result.format, bytes: result.bytes, data: result.buffer.toString('base64'), url },
-      faucet: { plan: 'no-wallet thumbnail', usedToday, dailyLimit: FAUCET_DAILY_LIMIT },
-      trial: {
-        endpoint: 'POST /v1/x402/trial',
-        note: 'full PNG + four more product trials per wallet (EIP-191 personal_sign proof); see GET /v1/x402/trial/status',
-      },
-      paidNext: trialPaidNextFor(config, 'capture'),
-      howToPay: howToPayFor(config),
-    };
-  });
-
   registerPaidRoute(app, '/v1/x402/extract', async (req) => {
     if (config.x402Network === undefined) {
       throw new HttpError(503, 'x402_disabled', 'x402 payment requires WEBCAP_CHAIN=base-sepolia or base');
+    }
+    // Free calls cap the batch. A 50-URL extract costs ~$0.01 of amortized
+    // compute, exactly its $0.01 price, so the free rail must not hand it over
+    // — that is the one place a free call could give away more compute than the
+    // paid call would have earned. Single-URL extract has no such ceiling.
+    // A 422 here never commits the allowance (the commit hook only fires <400).
+    if (allowanceGranted(req) && extractTargetCount(req.body) > FREE_BATCH_MAX_URLS) {
+      throw unprocessable(
+        `free extract batches are limited to ${FREE_BATCH_MAX_URLS} URLs; one paid call covers up to 50`,
+        {
+          freeBatchMaxUrls: FREE_BATCH_MAX_URLS,
+          paidNext: {
+            endpoint: 'POST /v1/x402/extract',
+            priceUsdc: config.x402ExtractPriceUsdcUnits / USDC_SCALE,
+            howToPay: howToPayFor(config),
+          },
+        },
+      );
     }
     const { results, urlCount } = await runExtractCompute(deps, config, pinoServiceLogger(req.log), req.body, allowHosts);
     const payer = x402Payer(req) ?? 'unknown';
@@ -380,9 +243,8 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
           endpoint: 'POST /v1/x402/extract',
           note: 'paid: full paragraphs + images + batch (up to 50 URLs) + optional model extraction + page classification',
         },
-        trial: {
-          endpoint: 'POST /v1/x402/trial',
-          note: 'free: five product trials per wallet (capture, extract, audit, map-lite, analyze — EIP-191 personal_sign proof); claimed wallets get 409 + paidNext; menu at GET /v1/x402/trial/status',
+        freeAllowance: {
+          note: 'every product is free inside the rolling per-IP allowance (X-Webcap-Allowance-* headers on any paid call); no wallet signature or account needed',
         },
         paidUpgrade: {
           endpoint: 'POST /v1/x402/extract',
@@ -491,9 +353,8 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
         endpoint: 'POST /v1/x402/extract',
         note: 'paid: full paragraphs + images + batch (up to 50 URLs) + optional model extraction + AI classification',
       },
-      trial: {
-        endpoint: 'POST /v1/x402/trial',
-        note: 'free: five product trials per wallet (capture, extract, audit, map-lite, analyze — EIP-191 personal_sign proof); claimed wallets get 409 + paidNext; menu at GET /v1/x402/trial/status',
+      freeAllowance: {
+        note: 'free inside the rolling per-IP allowance — no wallet signature or account needed',
       },
       paidUpgrade: {
         endpoint: 'POST /v1/x402/extract',
@@ -611,7 +472,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
           path: '/v1/x402/video',
           body: {
             url: 'string (required)',
-            format: 'mp4|webm (optional, default mp4)',
+            format: 'mp4|webm (optional; compatibility field — recordings are always WebM/VP8, default webm)',
             durationMs: 'integer (optional, default 5000, at most 30000) — recording duration in milliseconds',
             scrollSpeed: 'integer (optional, default 800, at most 5000) — pixels scrolled per choreography step',
             scrollEasing: 'linear|ease-in-out (optional, default linear)',
@@ -619,7 +480,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
           },
           priceUsdc: config.x402VideoPriceUsdcUnits / USDC_SCALE,
           atomicUnits: String(config.x402VideoPriceUsdcUnits),
-          note: 'scroll-capture a URL as an MP4/WebM video in one call',
+          note: 'scroll-capture a URL as a WebM/VP8 video in one call',
         },
         {
           method: 'POST',
@@ -662,7 +523,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
         scheme: 'exact',
       },
       howToPay:
-        'POST /v1/x402/capture, /v1/x402/extract, /v1/x402/audit, /v1/x402/map-lite, /v1/x402/video, /v1/x402/analyze, or /v1/x402/analyze/batch unpaid -> HTTP 402 with a base64 x402 v2 challenge (payment-required header) -> sign a gasless EIP-3009 transferWithAuthorization (from=your wallet, to=price.payTo, value=price.atomicUnits) -> retry with the PAYMENT-SIGNATURE header. The facilitator verifies + settles on-chain; USDC lands in the merchant wallet and the result is returned. Works with any x402 v2 client (@x402/axios) or scripts/x402-pay.ts (capture) / scripts/extract-pay.ts (extract). Free, no-payment preview: GET /v1/extract/preview?url=... (rate-limited).',
+        'POST /v1/x402/capture, /v1/x402/extract, /v1/x402/audit, /v1/x402/map-lite, /v1/x402/video, /v1/x402/analyze, or /v1/x402/analyze/batch unpaid -> HTTP 402 with a base64 x402 v2 challenge (payment-required header) -> sign a gasless EIP-3009 transferWithAuthorization (from=your wallet, to=price.payTo, value=price.atomicUnits) -> retry with the PAYMENT-SIGNATURE header. The facilitator verifies + settles on-chain; USDC lands in the merchant wallet and the result is returned. Works with any x402 v2 client (@x402/axios) or scripts/x402-pay.ts (capture) / scripts/extract-pay.ts (extract). Free with no wallet: GET /v1/extract/preview?url=... (rate-limited), and the rolling per-IP allowance — an unpaid call to any paid path above runs the product free until that window is spent (X-Webcap-Allowance-* headers say where you stand).',
       facilitator: config.x402FacilitatorUrl,
       freeEndpoints: [
         { method: 'GET', path: '/v1/og?url=...', note: 'free OG metadata, no payment' },
@@ -673,39 +534,9 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
         },
         { method: 'GET', path: '/v1/health', note: 'liveness + chain' },
         {
-          method: 'GET',
-          path: '/v1/x402/trial/status?payer=...',
-          note: 'trial menu per wallet (claimed/available + the exact claim recipe)',
-        },
-        {
-          method: 'GET',
-          path: '/v1/x402/trial/quick?url=...',
-          note: 'no-wallet JPEG thumbnail, 3/day per IP; full trials need a wallet signature',
-        },
-        {
-          method: 'POST',
-          path: '/v1/x402/trial',
-          note: 'free full PNG capture trial, one per wallet — body {url, payer, signature} where signature is the EIP-191 personal_sign of "Claim one free webcap trial capture for <lowercase-0x-address>"',
-        },
-        {
-          method: 'POST',
-          path: '/v1/x402/trial/extract',
-          note: 'free single-URL extraction trial, one per wallet (no schema/model/batch)',
-        },
-        {
-          method: 'POST',
-          path: '/v1/x402/trial/audit',
-          note: 'free SEO + link/OG health audit trial, one per wallet',
-        },
-        {
-          method: 'POST',
-          path: '/v1/x402/trial/map-lite',
-          note: 'free site-map trial capped at 10 URLs, one per wallet',
-        },
-        {
-          method: 'POST',
-          path: '/v1/x402/trial/analyze',
-          note: 'free deterministic single-URL analysis trial, one per wallet (model-backed analysis stays paid)',
+          method: 'ANY',
+          path: '/v1/x402/{capture,extract,audit,map-lite,video,analyze}',
+          note: 'rolling free allowance: inside the per-IP window an unpaid call runs the product free (see X-Webcap-Allowance-* response headers); once spent the same paths answer the x402 402 challenge. No wallet signature, no account.',
         },
         {
           method: 'POST',

@@ -160,10 +160,12 @@ describe('GET /v1/x402/service (canonical agent descriptor)', () => {
       // The pre-existing entries keep their config-derived prices (no drift).
       expect(capture?.priceUsdc).toBe(fx.config.x402PriceUsdcUnits / USDC_SCALE);
       expect(extract?.priceUsdc).toBe(fx.config.x402ExtractPriceUsdcUnits / USDC_SCALE);
-      // The free trial is advertised in freeEndpoints (never in paidEndpoints).
-      const trial = body.freeEndpoints.find((e) => e.path === '/v1/x402/trial');
-      expect(trial?.method).toBe('POST');
-      expect(String(trial?.note)).toContain('personal_sign');
+      // The rolling free allowance is advertised in freeEndpoints, and the
+      // retired wallet-signed trial rail no longer appears anywhere.
+      const allowance = body.freeEndpoints.find((e) => String(e.path).startsWith('/v1/x402/{'));
+      expect(allowance?.method).toBe('ANY');
+      expect(String(allowance?.note)).toContain('rolling free allowance');
+      expect(body.freeEndpoints.some((e) => String(e.path).includes('/trial'))).toBe(false);
       // The feedback route is a free endpoint on the canonical descriptor too.
       const feedback = body.freeEndpoints.find((e) => e.path === '/v1/feedback');
       expect(feedback?.method).toBe('POST');

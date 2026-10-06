@@ -33,6 +33,7 @@ export function openDb(path: string): Db {
   migrateTrialClaims(db);
   migrateFaucetDays(db);
   migrateFeedback(db);
+  migrateAllowanceUses(db);
   return db;
 }
 
@@ -307,4 +308,26 @@ function migrateFeedback(db: Db): void {
   if (!existing.has('created_at')) db.exec("ALTER TABLE feedback ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
   db.exec('CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_feedback_category ON feedback(category)');
+}
+
+/**
+ * Rolling free-allowance budget: one row per granted free call, so the window
+ * is a real slide (expire-and-count) rather than a calendar bucket. Fresh
+ * databases carry the table here (idempotent); expired rows are pruned on every
+ * check, so it stays small. `cost` lets a batch consume its URL count.
+ *
+ * A fresh table rather than an ALTER of `faucet_days`: the faucet was a fixed
+ * UTC-day thumbnail budget with a different key and shape, and it stays in place
+ * (unused by the allowance path) so earlier records remain readable history.
+ */
+function migrateAllowanceUses(db: Db): void {
+  db.exec(
+    'CREATE TABLE IF NOT EXISTS allowance_uses (' +
+      'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+      'ip_hash TEXT NOT NULL, ' +
+      'ts TEXT NOT NULL, ' +
+      'cost INTEGER NOT NULL DEFAULT 1)',
+  );
+  db.exec('CREATE INDEX IF NOT EXISTS idx_allowance_uses_ip_ts ON allowance_uses(ip_hash, ts)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_allowance_uses_ts ON allowance_uses(ts)');
 }

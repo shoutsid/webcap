@@ -56,7 +56,7 @@ export async function openapiDocument(config: WebcapConfig): Promise<OpenapiDocu
     `${usd(config.x402AuditPriceUsdcUnits)} USDC, SEO basics + link/OG health in one call), ` +
     'POST /v1/x402/map-lite (' +
     `${usd(config.x402AuditPriceUsdcUnits)} USDC, sitemap/robots + 1-hop crawl URL list), POST /v1/x402/video (` +
-    `${usd(config.x402VideoPriceUsdcUnits)} USDC, scroll-capture MP4/WebM), ` +
+    `${usd(config.x402VideoPriceUsdcUnits)} USDC, scroll-capture WebM/VP8), ` +
     'and POST /v1/x402/watches/topup (dynamic ' +
     `${usd(watchTopUpPriceUsdcUnits('capture', config))}-${usd(watchTopUpPriceUsdcUnits('extract', config))} USDC ` +
     `per ${WATCH_TOPUP_RUNS}-run watch pack). Payment (x402 v2 "exact"): on HTTP 402 read the base64 ` +

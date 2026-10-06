@@ -273,7 +273,7 @@ console.log(data.results[0].title); <span class="c">// "Example Domain"</span></
         <tr><td>POST /v1/x402/capture</td><td>${capturePrice}</td><td>1</td><td>Screenshot (PNG/JPEG/PDF) + OG metadata + persistent artifact URL</td></tr>
         <tr><td>POST /v1/x402/extract</td><td>${extractPrice}</td><td>${Math.ceil(config.x402ExtractPriceUsdcUnits / config.x402PriceUsdcUnits)}</td><td>Structured JSON (title, headings, links, markdown) \u2014 batch up to 50 URLs</td></tr>
         <tr><td>POST /v1/x402/audit</td><td>$${config.x402AuditPriceUsdcUnits / USDC_SCALE}</td><td>${Math.ceil(config.x402AuditPriceUsdcUnits / config.x402PriceUsdcUnits)}</td><td>SEO basics + link/OG health in one call</td></tr>
-        <tr><td>POST /v1/x402/video</td><td>$${config.x402VideoPriceUsdcUnits / USDC_SCALE}</td><td>${Math.ceil(config.x402VideoPriceUsdcUnits / config.x402PriceUsdcUnits)}</td><td>Scroll-capture as MP4/WebM video</td></tr>
+        <tr><td>POST /v1/x402/video</td><td>$${config.x402VideoPriceUsdcUnits / USDC_SCALE}</td><td>${Math.ceil(config.x402VideoPriceUsdcUnits / config.x402PriceUsdcUnits)}</td><td>Scroll-capture as WebM/VP8 video</td></tr>
         <tr><td>GET /v1/extract/preview</td><td>Free</td><td>0</td><td>Bounded preview (title, headings, links, truncated markdown)</td></tr>
         <tr><td>GET /v1/og</td><td>Free</td><td>0</td><td>Open Graph metadata</td></tr>
       </tbody>

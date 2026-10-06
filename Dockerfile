@@ -37,6 +37,11 @@ COPY package.json ./
 COPY public ./public
 RUN useradd -m webcap && mkdir -p /data && chown webcap /data
 USER webcap
+# Playwright records video (POST /v1/x402/video, /v1/video) through its own
+# bundled ffmpeg, which the system Chrome .deb does not provide. Installed as
+# webcap so it lands in /home/webcap/.cache/ms-playwright/ffmpeg-<build>,
+# where recordVideo looks it up at runtime. Without this every video call 502s.
+RUN node_modules/.bin/playwright-core install ffmpeg
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "dist/main.js"]

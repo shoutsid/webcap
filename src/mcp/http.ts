@@ -35,7 +35,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { WebcapConfig } from '../config.js';
-import { handleRpc, MCP_SERVER_VERSION, type McpHttp, type McpResponse } from './server.js';
+import { handleRpc, declareProtocolVersion, MCP_SERVER_VERSION, type McpHttp, type McpResponse } from './server.js';
 
 /**
  * The HTTP seam over this same app: in-process, so no network or loopback port.
@@ -135,10 +135,15 @@ export function registerMcpHttpRoute(app: FastifyInstance, config: WebcapConfig)
     };
 
     const messages: readonly unknown[] = isBatch ? body : [body];
+    // The 2026-07-28 transport carries the revision in an `MCP-Protocol-Version`
+    // header as well as in `_meta`; accept either, so a header-only client is
+    // not silently treated as legacy.
+    const headerVersion = req.headers['mcp-protocol-version'];
+    const declaredHeader = typeof headerVersion === 'string' ? headerVersion : undefined;
     const responses: unknown[] = [];
     for (const message of messages) {
       try {
-        const response = await handleRpc(message, ctx);
+        const response = await handleRpc(declareProtocolVersion(message, declaredHeader), ctx);
         if (response !== null) responses.push(response);
       } catch (err) {
         // A handler fault must not take the transport down: answer the one

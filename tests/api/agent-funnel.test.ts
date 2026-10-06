@@ -8,10 +8,10 @@ import { closeApiFixture, makeApiFixture } from './fixture.js';
 // pin the stage definitions from docs/strategy/agent-first.md so the number
 // can't silently drift into probe noise.
 
-function seedTrial(fx: ReturnType<typeof makeApiFixture>, payer: string, endpoint: string): void {
+function seedAllowance(fx: ReturnType<typeof makeApiFixture>, ipHash: string, cost = 1): void {
   fx.db
-    .prepare('INSERT OR IGNORE INTO trial_claims (payer, endpoint, created_at) VALUES (?, ?, ?)')
-    .run(payer, endpoint, new Date().toISOString());
+    .prepare('INSERT INTO allowance_uses (ip_hash, ts, cost) VALUES (?, ?, ?)')
+    .run(ipHash, new Date().toISOString(), cost);
 }
 
 function seedRevenue(
@@ -52,9 +52,8 @@ describe('agent-income funnel: reach → challenge → trial → paid → retent
       recordHit(fx.db, { endpoint: 'POST /v1/x402/extract', status: 402, userAgent: 'probe/1.0' });
       recordHit(fx.db, { endpoint: 'GET /v1/extract/preview', status: 402 });
 
-      seedTrial(fx, '0xaaa', 'capture');
-      seedTrial(fx, '0xbbb', 'capture');
-      seedTrial(fx, '0xccc', 'extract');
+      seedAllowance(fx, 'hash-a', 2);
+      seedAllowance(fx, 'hash-b', 1);
 
       // one wallet paid once, one wallet paid twice -> repeat buyer
       seedRevenue(fx, '0xaaa', 'capture', 1_000);
@@ -78,9 +77,9 @@ describe('agent-income funnel: reach → challenge → trial → paid → retent
       expect(f.challenge.total).toBe(3);
       expect(f.challenge.topEndpoints[0]).toEqual({ endpoint: 'POST /v1/x402/capture', count: 2 });
 
-      expect(f.trial.claims).toBe(3);
-      expect(f.trial.wallets).toBe(3);
-      expect(f.trial.byEndpoint).toContainEqual({ endpoint: 'capture', count: 2 });
+      // 3 free calls granted across 2 caller buckets.
+      expect(f.freeAllowance.grants).toBe(3);
+      expect(f.freeAllowance.callers).toBe(2);
 
       // 3 calls across 2 distinct wallets (0xbbb paid twice)
       expect(f.paid.calls).toBe(3);
@@ -104,7 +103,7 @@ describe('agent-income funnel: reach → challenge → trial → paid → retent
       const f = res.json() as AgentFunnel;
       expect(f.reach.discoveryRequests).toBe(0);
       expect(f.challenge.total).toBe(0);
-      expect(f.trial.claims).toBe(0);
+      expect(f.freeAllowance).toEqual({ grants: 0, callers: 0 });
       expect(f.paid).toEqual({ calls: 0, wallets: 0, revenueUsdcUnits: 0 });
       expect(f.retention).toEqual({ firstPayWallets: 0, repeatWallets: 0 });
       expect(f.recurring.activePaidWatches).toBe(0);

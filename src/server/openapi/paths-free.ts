@@ -55,11 +55,10 @@ export function freePaths(ctx: PathContext): OpenapiPaths {
                     note: { type: 'string' },
                   },
                 },
-                trial: {
+                freeAllowance: {
                   type: 'object',
                   properties: {
-                    endpoint: { type: 'string', example: 'POST /v1/x402/trial' },
-                    note: { type: 'string', description: 'Free trial pointer: one full PNG capture per wallet (EIP-191 personal_sign proof)' },
+                    note: { type: 'string', description: 'Pointer at the rolling free allowance: every product is free inside the per-IP window, no wallet needed' },
                   },
                 },
                 paidUpgrade: {
@@ -77,336 +76,6 @@ export function freePaths(ctx: PathContext): OpenapiPaths {
           },
           422: ctx.unprocessable('Missing or invalid url query parameter'),
           429: jsonError('429', 'Preview rate limit exceeded (error envelope, code rate_limited; detail.retryAfterSeconds + detail.paidUpgrade{endpoint, priceUsdc, priceUsdcUnits, howToPay, guide} point at the paid extract endpoint)'),
-          502: ctx.captureFailed,
-        },
-        security: [],
-      },
-    },
-    '/v1/x402/trial': {
-      post: {
-        tags: ['capture'],
-        summary: 'Free trial capture: one full PNG per wallet (EIP-191 proof, no payment)',
-        description:
-          'One free full-page PNG capture per wallet, proven by EIP-191 personal_sign of exactly ' +
-          '"Claim one free webcap trial capture for <payer>" (<payer> = the lowercase 0x address). ' +
-          'A wallet that already claimed gets 409 already_claimed. Rate-limited per client; ' +
-          'the 200 and 409 responses carry a paidNext pointer at the paid capture endpoint. ' +
-          'Never touches the revenue ledger. Free, no payment.',
-        responses: {
-          200: {
-            description: 'Trial artifact + trial receipt + paidNext pointer',
-            content: jsonContent({
-              type: 'object',
-              properties: {
-                artifact: {
-                  type: 'object',
-                  properties: {
-                    format: { type: 'string', example: 'png' },
-                    bytes: { type: 'integer' },
-                    data: { type: 'string', description: 'Base64 PNG bytes' },
-                    url: { type: 'string', description: 'Persistent public artifact URL' },
-                  },
-                },
-                trial: {
-                  type: 'object',
-                  properties: {
-                    payer: { type: 'string' },
-                    endpoint: { type: 'string', example: 'capture' },
-                    priceUsdcUnits: { type: 'integer', example: 0 },
-                  },
-                },
-                paidNext: {
-                  type: 'object',
-                  properties: {
-                    endpoint: { type: 'string', example: 'POST /v1/x402/capture' },
-                    priceUsdcUnits: { type: 'integer' },
-                    guide: { type: 'string' },
-                  },
-                },
-                remaining: { type: 'array', items: { type: 'string' } },
-              },
-            }),
-          },
-          401: jsonError('401', 'Trial signature invalid (malformed EIP-191 signature, or does not recover to payer)'),
-          409: jsonError('409', 'Wallet already claimed its trial (code already_claimed; detail.paidNext points at the paid capture endpoint)'),
-          422: ctx.unprocessable('Missing/invalid url, payer (must be a 0x EVM address), or signature'),
-          429: jsonError('429', 'Trial rate limit exceeded (error envelope, code rate_limited; detail.paidNext points at the paid capture endpoint)'),
-          502: ctx.captureFailed,
-        },
-        security: [],
-      },
-    },
-    '/v1/x402/trial/extract': {
-      post: {
-        tags: ['capture'],
-        summary: 'Free trial extract: one deterministic single-URL extraction per wallet',
-        description:
-          'Single URL only (urls/schema/model in the body answer 422 — batch + model live on the paid extract). ' +
-          'Signature = EIP-191 personal_sign of exactly "Claim one free webcap trial extract for <payer>". ' +
-          'Repeat claims 409 with paidNext + remaining. Never touches the revenue ledger. Free, no payment.',
-        responses: {
-          200: {
-            description: 'Trial results + trial receipt + paidNext pointer',
-            content: jsonContent({
-              type: 'object',
-              properties: {
-                results: { type: 'array', items: { type: 'object' } },
-                trial: {
-                  type: 'object',
-                  properties: {
-                    payer: { type: 'string' },
-                    endpoint: { type: 'string', example: 'extract' },
-                    priceUsdcUnits: { type: 'integer', example: 0 },
-                  },
-                },
-                paidNext: {
-                  type: 'object',
-                  properties: {
-                    endpoint: { type: 'string', example: 'POST /v1/x402/extract' },
-                    priceUsdcUnits: { type: 'integer' },
-                    guide: { type: 'string' },
-                  },
-                },
-                remaining: { type: 'array', items: { type: 'string' } },
-              },
-            }),
-          },
-          401: jsonError('401', 'Trial signature invalid (malformed EIP-191 signature, or does not recover to payer)'),
-          409: jsonError('409', 'Wallet already claimed its extract trial (code already_claimed; detail carries paidNext + remaining)'),
-          422: ctx.unprocessable('Missing/invalid url, payer, or signature — or a paid-only field (urls/schema/model) was sent'),
-          429: jsonError('429', 'Trial rate limit exceeded (error envelope, code rate_limited)'),
-          502: ctx.captureFailed,
-        },
-        security: [],
-      },
-    },
-    '/v1/x402/trial/audit': {
-      post: {
-        tags: ['capture'],
-        summary: 'Free trial audit: one SEO + link/OG health audit per wallet',
-        description:
-          'Full single-URL audit (title, description, OG tags, link health). ' +
-          'Signature = EIP-191 personal_sign of exactly "Claim one free webcap trial audit for <payer>". ' +
-          'Repeat claims 409 with paidNext + remaining. Never touches the revenue ledger. Free, no payment.',
-        responses: {
-          200: {
-            description: 'Trial audit + trial receipt + paidNext pointer',
-            content: jsonContent({
-              type: 'object',
-              properties: {
-                audit: { type: 'object' },
-                trial: {
-                  type: 'object',
-                  properties: {
-                    payer: { type: 'string' },
-                    endpoint: { type: 'string', example: 'audit' },
-                    priceUsdcUnits: { type: 'integer', example: 0 },
-                  },
-                },
-                paidNext: {
-                  type: 'object',
-                  properties: {
-                    endpoint: { type: 'string', example: 'POST /v1/x402/audit' },
-                    priceUsdcUnits: { type: 'integer' },
-                    guide: { type: 'string' },
-                  },
-                },
-                remaining: { type: 'array', items: { type: 'string' } },
-              },
-            }),
-          },
-          401: jsonError('401', 'Trial signature invalid (malformed EIP-191 signature, or does not recover to payer)'),
-          409: jsonError('409', 'Wallet already claimed its audit trial (code already_claimed; detail carries paidNext + remaining)'),
-          422: ctx.unprocessable('Missing/invalid url, payer (must be a 0x EVM address), or signature'),
-          429: jsonError('429', 'Trial rate limit exceeded (error envelope, code rate_limited)'),
-          502: ctx.captureFailed,
-        },
-        security: [],
-      },
-    },
-    '/v1/x402/trial/map-lite': {
-      post: {
-        tags: ['capture'],
-        summary: 'Free trial map-lite: one site map (capped at 10 URLs) per wallet',
-        description:
-          'Sitemap/robots + 1-hop same-host crawl, capped at 10 URLs (paid goes to 50). ' +
-          'Signature = EIP-191 personal_sign of exactly "Claim one free webcap trial map-lite for <payer>". ' +
-          'Repeat claims 409 with paidNext + remaining. Never touches the revenue ledger. Free, no payment.',
-        responses: {
-          200: {
-            description: 'Trial URL list + trial receipt + paidNext pointer',
-            content: jsonContent({
-              type: 'object',
-              properties: {
-                urls: { type: 'array', items: { type: 'string' } },
-                trial: {
-                  type: 'object',
-                  properties: {
-                    payer: { type: 'string' },
-                    endpoint: { type: 'string', example: 'map-lite' },
-                    priceUsdcUnits: { type: 'integer', example: 0 },
-                    maxUrlsCap: { type: 'integer', example: 10 },
-                  },
-                },
-                paidNext: {
-                  type: 'object',
-                  properties: {
-                    endpoint: { type: 'string', example: 'POST /v1/x402/map-lite' },
-                    priceUsdcUnits: { type: 'integer' },
-                    guide: { type: 'string' },
-                  },
-                },
-                remaining: { type: 'array', items: { type: 'string' } },
-              },
-            }),
-          },
-          401: jsonError('401', 'Trial signature invalid (malformed EIP-191 signature, or does not recover to payer)'),
-          409: jsonError('409', 'Wallet already claimed its map-lite trial (code already_claimed; detail carries paidNext + remaining)'),
-          422: ctx.unprocessable('Missing/invalid url, payer (must be a 0x EVM address), signature, or maxUrls'),
-          429: jsonError('429', 'Trial rate limit exceeded (error envelope, code rate_limited)'),
-        },
-        security: [],
-      },
-    },
-    '/v1/x402/trial/analyze': {
-      post: {
-        tags: ['capture'],
-        summary: 'Free trial analyze: one deterministic single-URL analysis per wallet',
-        description:
-          'Deterministic analysis only — no model call even when the deployment has a model configured ' +
-          '(model-backed analysis stays paid). Body {url, task, payer, signature}; task is one of ' +
-          'classification|accessibility|layout|entities|sentiment. ' +
-          'Signature = EIP-191 personal_sign of exactly "Claim one free webcap trial analyze for <payer>". ' +
-          'Repeat claims 409 with paidNext + remaining. Never touches the revenue ledger. Free, no payment.',
-        responses: {
-          200: {
-            description: 'Trial analysis + trial receipt + paidNext pointer',
-            content: jsonContent({
-              type: 'object',
-              properties: {
-                task: { type: 'string', example: 'classification' },
-                result: { type: 'object' },
-                trial: {
-                  type: 'object',
-                  properties: {
-                    payer: { type: 'string' },
-                    endpoint: { type: 'string', example: 'analyze' },
-                    priceUsdcUnits: { type: 'integer', example: 0 },
-                  },
-                },
-                paidNext: {
-                  type: 'object',
-                  properties: {
-                    endpoint: { type: 'string', example: 'POST /v1/x402/analyze' },
-                    priceUsdcUnits: { type: 'integer' },
-                    guide: { type: 'string' },
-                  },
-                },
-                remaining: { type: 'array', items: { type: 'string' } },
-              },
-            }),
-          },
-          401: jsonError('401', 'Trial signature invalid (malformed EIP-191 signature, or does not recover to payer)'),
-          409: jsonError('409', 'Wallet already claimed its analyze trial (code already_claimed; detail carries paidNext + remaining)'),
-          422: ctx.unprocessable('Missing/invalid url, task, payer (must be a 0x EVM address), or signature'),
-          429: jsonError('429', 'Trial rate limit exceeded (error envelope, code rate_limited)'),
-          502: ctx.captureFailed,
-        },
-        security: [],
-      },
-    },
-    '/v1/x402/trial/status': {
-      get: {
-        tags: ['discovery'],
-        summary: 'Trial menu for a wallet: claimed/available trials, the claim recipe, and the paid catalog to move on to',
-        description:
-          'Free trials + the paid path in one call. `available` lists the trials this wallet can still claim ' +
-          '(with the paid counterpart and price of each). `paid` is always the full priced catalog of paid ' +
-          'endpoints, and `howToPay` is the x402 flow (scheme/network/asset/payTo mirror the 402 challenge), ' +
-          'so a wallet that has used every trial still gets a concrete next call instead of an empty menu. ' +
-          '`recurring` points at the watch path (create free, top up in 100-run packs). Free, no payment.',
-        parameters: [
-          {
-            name: 'payer',
-            in: 'query',
-            required: false,
-            schema: { type: 'string' },
-            description:
-              'Lowercase 0x EVM address to look up. Omit it for the same 200 menu with claimed=[] and all five trials available — a wallet-less caller gets the recipe, not an error.',
-          },
-        ],
-        responses: {
-          200: {
-            description: 'Claimed + available trial endpoints with trial/paid paths and prices, plus the paid catalog, howToPay and recurring watch options',
-            content: jsonContent({
-              type: 'object',
-              properties: {
-                payer: { type: ['string', 'null'], description: 'The looked-up wallet, or null when no payer was passed' },
-                claimed: { type: 'array', items: { type: 'string' } },
-                available: { type: 'array', items: { type: 'object' } },
-                allTrialsUsed: { type: 'boolean' },
-                nextStep: { type: 'string' },
-                paid: {
-                  type: 'array',
-                  description: 'Every paid endpoint with its price; always present, even when no trials remain',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      endpoint: { type: 'string', example: 'POST /v1/x402/capture' },
-                      priceUsdcUnits: { type: 'integer' },
-                      priceUsdc: { type: 'number' },
-                      note: { type: 'string' },
-                    },
-                  },
-                },
-                howToPay: {
-                  type: 'object',
-                  description: 'The x402 payment flow, with the same scheme/network/asset/payTo the 402 challenge carries',
-                },
-                recurring: { type: 'object', description: 'Create a watch free, then top it up in 100-run packs' },
-                howToClaim: { type: 'object' },
-              },
-            }),
-          },
-          422: ctx.unprocessable('payer query parameter must be a 0x EVM address'),
-        },
-        security: [],
-      },
-    },
-    '/v1/x402/trial/quick': {
-      get: {
-        tags: ['capture'],
-        summary: 'No-wallet free JPEG thumbnail (3/day per IP)',
-        description:
-          'Zero-friction hook for bots that cannot sign: a JPEG capture thumbnail with no wallet and no ' +
-          'signature, budgeted at 3 per IP per UTC day (429 faucet_exhausted past that, with a trial pointer). ' +
-          'The full trials above are the product; this points at them. Free, no payment.',
-        parameters: [
-          { name: 'url', in: 'query', required: true, schema: { type: 'string' }, description: 'The page to thumbnail' },
-        ],
-        responses: {
-          200: {
-            description: 'Thumbnail artifact + faucet budget state + trial pointer',
-            content: jsonContent({
-              type: 'object',
-              properties: {
-                artifact: {
-                  type: 'object',
-                  properties: {
-                    format: { type: 'string', example: 'jpeg' },
-                    bytes: { type: 'integer' },
-                    data: { type: 'string', description: 'Base64 JPEG bytes' },
-                    url: { type: 'string', description: 'Persistent public artifact URL' },
-                  },
-                },
-                faucet: { type: 'object' },
-                trial: { type: 'object' },
-                paidNext: { type: 'object' },
-              },
-            }),
-          },
-          422: ctx.unprocessable('url query parameter is required (or the URL is blocked/malformed)'),
-          429: jsonError('429', 'Faucet budget spent for today (code faucet_exhausted; detail carries the wallet-trial pointer + paidNext)'),
           502: ctx.captureFailed,
         },
         security: [],
@@ -775,11 +444,11 @@ export function freePaths(ctx: PathContext): OpenapiPaths {
     '/v1/agent-funnel': {
       get: {
         tags: ['discovery'],
-        summary: 'Agent-income funnel (reach → challenge → trial → paid → retention → recurring)',
+        summary: 'Agent-income funnel (reach → challenge → free allowance → paid → retention → recurring)',
         description:
           'The conversion funnel for the customer this service actually has: an autonomous agent. Tracks reach ' +
           '(discovery clients reading llms.txt/skill.md/.well-known/openapi/x402-service), challenge (402s on paid ' +
-          'routes), trial (wallet-signed free claims), paid (settled calls + distinct paying wallets from the revenue ' +
+          'routes), freeAllowance (free product calls granted by the rolling per-IP window), paid (settled calls + distinct paying wallets from the revenue ' +
           'ledger), retention (first-pay vs repeat wallets, lifetime) and recurring (funded, unpaused watches). ' +
           'Aggregate only — never a raw payer address. Pass ?format=text for terminal output. See ' +
           'docs/strategy/agent-first.md for the north-star definition. Public, no auth.',
@@ -823,7 +492,7 @@ export function freePaths(ctx: PathContext): OpenapiPaths {
                     },
                   },
                 },
-                trial: {
+                freeAllowance: {
                   type: 'object',
                   properties: {
                     claims: { type: 'integer' },

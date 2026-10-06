@@ -26,10 +26,14 @@ export interface VideoRequest {
   readonly timezoneId?: string;
 }
 
-const DEFAULT_VIDEO_FORMAT: VideoFormat = 'mp4';
+const DEFAULT_VIDEO_FORMAT: VideoFormat = 'webm';
 
 const DEFAULT_SCROLL_EASING: ScrollEasing = 'linear';
 
+/**
+ * Accepts both format values for compatibility. `mp4` is a legacy alias: the
+ * capture always produces WebM/VP8, and the response mime says so.
+ */
 function parseVideoFormat(raw: unknown): VideoFormat {
   if (raw === undefined) return DEFAULT_VIDEO_FORMAT;
   if (raw === 'mp4' || raw === 'webm') return raw;

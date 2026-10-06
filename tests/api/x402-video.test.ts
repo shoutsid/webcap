@@ -23,7 +23,7 @@ vi.mock('../../src/capture/video.js', async (importOriginal) => {
     ...actual,
     captureVideo: vi.fn(async () => ({
       buffer: Buffer.from([0x00, 0x01, 0x02, 0x03]),
-      mime: 'video/mp4',
+      mime: 'video/webm',
       bytes: 4,
     })),
   };
@@ -146,7 +146,7 @@ describe('x402 video (v2 wire, mock facilitator, stubbed recordVideo)', () => {
       artifact: { mime: string; bytes: number; data: string };
       payment: { payer: string; priceUsdcUnits: number };
     };
-    expect(body.artifact.mime).toBe('video/mp4');
+    expect(body.artifact.mime).toBe('video/webm');
     expect(body.artifact.bytes).toBe(4);
     expect(typeof body.artifact.data).toBe('string');
     expect(Buffer.from(body.artifact.data, 'base64')).toHaveLength(4);
