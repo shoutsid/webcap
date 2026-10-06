@@ -27,6 +27,30 @@ docker compose up -d
 `bin/webcap-health.sh` does this same restart (plus a re-check) if you would
 rather run one command — it is a **manual** tool, not scheduled.
 
+### 2b. The app answers nothing but the daemon is fine (filesystem stall)
+
+Seen twice on 2026-10-06. Every request times out — including `/v1/health` —
+while `docker exec` still works and the container reads `(unhealthy)`. The
+process is alive but blocked in uninterruptible I/O:
+
+```bash
+docker exec webcap-webcap-1 ps -eo pid,stat,comm | head
+docker exec webcap-webcap-1 sh -c 'cat /proc/<pid>/wchan'
+```
+
+The tell is `D` in the `STAT` column and `wchan=wait_transaction_locked`: the
+container's ext4 journal is stalled, so node (and any Chromium alongside it)
+sits in a syscall that never returns. The disk was only ~4% full both times, so
+this is not a space problem. A process in `D` cannot act on SIGTERM, but the
+restart still clears it (verified 2026-10-06):
+
+```bash
+docker compose restart webcap
+```
+
+Nothing in the app causes this and nothing in it can recover from it, which is
+exactly why detection here is manual.
+
 ## 3. Wedged container — the daemon will not answer
 
 Symptoms (all of these, together, are what 2026-10-06 looked like):

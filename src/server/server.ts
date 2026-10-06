@@ -146,24 +146,30 @@ const ALLOW_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH
 function registerNotFoundEnvelope(app: FastifyInstance): void {
   // Async on purpose: a sync onRequest hook must call done() itself, and the
   // matched-route early-return would stall the request pipeline without it.
+  //
+  // Both paths RETURN the reply. An async hook that sends a reply but returns
+  // undefined makes Fastify log "Reply was already sent, did you forget to
+  // return reply in the \"...\" route?" at error level, on every unmatched
+  // request — hundreds a day from agents probing GET /mcp and friends.
   app.addHook('onRequest', async (req, reply) => {
     if (app.findRoute({ method: req.method, url: req.url }) !== null) return;
-    replyNotFoundOrMethodNotAllowed(app, req, reply);
+    return replyNotFoundOrMethodNotAllowed(app, req, reply);
   });
   app.setNotFoundHandler((req, reply) => replyNotFoundOrMethodNotAllowed(app, req, reply));
 }
 
-function replyNotFoundOrMethodNotAllowed(app: FastifyInstance, req: FastifyRequest, reply: FastifyReply): void {
+function replyNotFoundOrMethodNotAllowed(app: FastifyInstance, req: FastifyRequest, reply: FastifyReply): FastifyReply {
   // Guard: if the reply was already sent (e.g. by the onRequest hook above),
   // skip to avoid FST_ERR_REP_ALREADY_SENT when the not-found handler fires.
-  if (reply.sent || reply.raw.writableEnded) return;
+  if (reply.sent || reply.raw.writableEnded) return reply;
   const allowed = ALLOW_METHODS.filter((method) => app.findRoute({ method, url: req.url }) !== null);
   if (allowed.length > 0) {
     reply.header('allow', allowed.join(', '));
     const body: ErrorBody = { error: { code: 'method_not_allowed', message: 'method not allowed' } };
     void reply.status(405).send(body);
-    return;
+    return reply;
   }
   const body: ErrorBody = { error: { code: 'not_found', message: 'route not found' } };
   void reply.status(404).send(body);
+  return reply;
 }
