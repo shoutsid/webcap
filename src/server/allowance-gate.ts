@@ -21,6 +21,12 @@
  * balance math, so it stays paid. Watch top-ups are a different product and
  * stay paid. `/v1/x402/analyze/batch` is not on the agent tool surface, so it
  * stays paid too.
+ *
+ * Who counts as a caller. `clientIpOf(request)`, never `request.ip`: behind the
+ * tunnel every agent arrives from the same gateway address, so raw `request.ip`
+ * silently made the per-IP window a fleet-wide budget that crawlers spent
+ * first. The bucket key is salted from a stable deployment secret too, so a
+ * restart cannot hand every caller a fresh window.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebcapConfig } from '../config.js';
@@ -30,10 +36,12 @@ import {
   allowanceHeaders,
   makeAllowanceRepo,
   prepareAllowance,
+  stableAllowanceKey,
   type AllowanceGate,
   type AllowanceProduct,
   type PreparedAllowance,
 } from '../db/allowance.js';
+import { clientIpOf } from '../util/client-ip.js';
 
 /**
  * Internal marker header. Set by the gate when a call is granted, read by the
@@ -79,11 +87,16 @@ export function allowanceGranted(request: FastifyRequest): boolean {
  * turns it on, so a hand-built config keeps the pay-per-call contract.
  */
 export function allowanceGateFor(config: WebcapConfig, db: Db): AllowanceGate {
+  // Prefer the dedicated artifact secret, else the merchant key (always present
+  // in a real deployment). A hand-built config with neither keeps the
+  // per-process salt, which is right for tests and wrong for production.
+  const saltSecret = config.artifactHmacSecret ?? config.merchantPrivateKey ?? '';
   return {
     repo: makeAllowanceRepo(db),
     limit: config.allowanceCalls ?? 0,
     windowMs: (config.allowanceWindowHours ?? DEFAULT_ALLOWANCE_WINDOW_HOURS) * 3_600_000,
     globalWindowLimit: config.allowanceGlobalLimit ?? 0,
+    ...(saltSecret !== '' ? { keyFor: stableAllowanceKey(saltSecret) } : {}),
   };
 }
 
@@ -109,7 +122,7 @@ export function registerAllowanceHook(app: FastifyInstance, config: WebcapConfig
     // receipt; the free rail is for callers that brought no payment.
     if (request.headers['payment-signature'] !== undefined || request.headers['x-payment'] !== undefined) return;
 
-    const prepared = prepareAllowance(gate, request.ip);
+    const prepared = prepareAllowance(gate, clientIpOf(request));
     req.webcapAllowance = prepared;
     if (prepared.granted) request.headers[ALLOWANCE_MARKER] = 'granted';
   });

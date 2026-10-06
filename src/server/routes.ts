@@ -23,6 +23,7 @@ import { recordHit } from '../db/hits.js';
 import { CaptureError } from '../capture/errors.js';
 import { previewFallback } from '../capture/preview-fallback.js';
 import { HttpError, unprocessable } from '../util/errors.js';
+import { clientIpOf } from '../util/client-ip.js';
 import { RateLimiter, rejectRateLimited } from '../util/ratelimit.js';
 import { storeArtifact } from '../extract/service.js';
 import { classifyPage } from '../ml/deterministic.js';
@@ -208,11 +209,13 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (typeof rawUrl !== 'string') throw unprocessable('url query parameter is required');
     // Validate URL once up front so both the primary path and fallback share it.
     const normalizedUrl = validatedUrl(rawUrl, allowHosts);
-    // Key on the actual peer IP only: behind the ngrok tunnel req.ip is the
-    // tunnel peer, while X-Forwarded-For is attacker-controlled (spoofing it
-    // previously minted an unlimited free-capture budget per header value).
-    if (!previewLimiter.allow(req.ip)) {
-      rejectRateLimited(reply, previewLimiter, req.ip, 'preview rate limit exceeded; use the paid extract endpoint', {
+    // The caller's own address, not the socket peer: behind the tunnel every
+    // request arrives from the gateway, so keying on req.ip made this a single
+    // shared budget (see src/util/client-ip.ts). A forwarded header is only
+    // honoured from a local peer, so it cannot be spoofed from the internet.
+    const caller = clientIpOf(req);
+    if (!previewLimiter.allow(caller)) {
+      rejectRateLimited(reply, previewLimiter, caller, 'preview rate limit exceeded; use the paid extract endpoint', {
         paidUpgrade: {
           endpoint: 'POST /v1/x402/extract',
           priceUsdc: config.x402ExtractPriceUsdcUnits / USDC_SCALE,
@@ -571,9 +574,8 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (typeof rawUrl !== 'string') {
       return reply.send(ogDebuggerHtml(config, { state: 'error', rawUrl: '[invalid]', message: 'invalid url' }));
     }
-    // Key on the actual peer IP only (same rationale as the preview limiter:
-    // X-Forwarded-For is attacker-controlled behind tunnels).
-    if (!ogDebuggerLimiter.allow(req.ip)) {
+    // Same caller resolution as the preview limiter (src/util/client-ip.ts).
+    if (!ogDebuggerLimiter.allow(clientIpOf(req))) {
       return reply.send(ogDebuggerHtml(config, { state: 'rate_limited' }));
     }
     let normalized: string;

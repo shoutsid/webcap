@@ -1,7 +1,8 @@
 /**
- * Abuse hardening: rate limits keyed on the real peer IP (not spoofable
- * X-Forwarded-For), registration + watch-mutation budgets, and the ban on
- * merchant self-registration on live chains.
+ * Abuse hardening: rate limits keyed per caller — a forwarded client address is
+ * trusted only from a local peer (the tunnel), never from the internet — plus
+ * registration + watch-mutation budgets, and the ban on merchant
+ * self-registration on live chains.
  */
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -43,21 +44,49 @@ function assertRateLimited(res: InjectedResponse): void {
 const PREVIEW_URL = '/v1/extract/preview?url=https://example.com/';
 
 describe('preview rate limit keying (abuse: X-Forwarded-For spoofing)', () => {
-  it('keys the budget on the peer IP: rotating X-Forwarded-For from one origin shares the budget', async () => {
+  it('a public peer cannot buy new budgets by rotating X-Forwarded-For', async () => {
     const fx = makeApiFixture();
     try {
-      // Ten requests from the same inject origin (default peer address),
-      // alternating between two spoofed X-Forwarded-For values.
+      // A directly-connected caller that names its own address must not mint a
+      // budget per value: a forwarded header is only honoured from a local peer.
       const spoofA = '203.0.113.10';
       const spoofB = '198.51.100.20';
       for (let i = 0; i < 10; i += 1) {
-        const res = await fx.app.inject({ method: 'GET', url: PREVIEW_URL, headers: { 'x-forwarded-for': i % 2 === 0 ? spoofA : spoofB } });
+        const res = await fx.app.inject({
+          method: 'GET',
+          url: PREVIEW_URL,
+          remoteAddress: '198.51.100.1',
+          headers: { 'x-forwarded-for': i % 2 === 0 ? spoofA : spoofB },
+        });
         expect(res.statusCode).toBe(200);
       }
       // 11th from the same peer with a fresh spoofed value: the spoof no longer
       // buys a new budget, so this must be blocked.
-      const blocked = await fx.app.inject({ method: 'GET', url: PREVIEW_URL, headers: { 'x-forwarded-for': '203.0.113.99' } });
+      const blocked = await fx.app.inject({
+        method: 'GET',
+        url: PREVIEW_URL,
+        remoteAddress: '198.51.100.1',
+        headers: { 'x-forwarded-for': '203.0.113.99' },
+      });
       assertRateLimited(blocked);
+    } finally {
+      await closeApiFixture(fx);
+    }
+  });
+
+  it('keys a local peer (the tunnel) on the forwarded caller, not the gateway', async () => {
+    const fx = makeApiFixture();
+    try {
+      // Every external request arrives from the gateway address; keying on the
+      // raw peer collapsed every agent into one budget (fixed 2026-10-06).
+      const viaTunnel = { remoteAddress: '172.21.0.1' };
+      const call = (ip: string) =>
+        fx.app.inject({ method: 'GET', url: PREVIEW_URL, ...viaTunnel, headers: { 'cf-connecting-ip': ip } });
+      for (let i = 0; i < 10; i += 1) expect((await call('203.0.113.10')).statusCode).toBe(200);
+      // That caller is now spent...
+      assertRateLimited(await call('203.0.113.10'));
+      // ...while a different agent behind the same tunnel keeps its own budget.
+      expect((await call('198.51.100.20')).statusCode).toBe(200);
     } finally {
       await closeApiFixture(fx);
     }

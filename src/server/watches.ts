@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { WATCH_TOPUP_RUNS, watchTopUpPriceUsdcUnits } from '../config.js';
 import { HttpError, badRequest } from '../util/errors.js';
 import { RateLimiter, rejectRateLimited } from '../util/ratelimit.js';
+import { clientIpOf } from '../util/client-ip.js';
 import { validateCaptureUrl } from '../util/url.js';
 
 import { makeWatchRepo, type WatchRepo, type WatchRow, type WatchRunRow, type WatchMode } from '../watch/store.js';
@@ -59,13 +60,15 @@ export function registerWatchRoutes(app: FastifyInstance, deps: AppDeps): void {
   const { config, db } = deps;
   const repo = makeWatchRepo(db);
   const allowHosts = deps.captureAllowHosts;
-  // One shared budget per peer IP across both mutation routes (create + delete),
-  // keyed on req.ip: the header-spoofing hole of X-Forwarded-For keying.
+  // One shared budget per caller across both mutation routes (create + delete),
+  // resolved with clientIpOf (src/util/client-ip.ts) rather than the raw socket
+  // peer, which is the tunnel for every caller.
   const watchMutationLimiter = new RateLimiter(WATCH_MUTATION_RATE_LIMIT, RATE_LIMIT_WINDOW_MS);
 
   app.post('/v1/watches', async (req, reply) => {
-    if (!watchMutationLimiter.allow(req.ip)) {
-      rejectRateLimited(reply, watchMutationLimiter, req.ip, 'watch mutation rate limit exceeded');
+    const caller = clientIpOf(req);
+    if (!watchMutationLimiter.allow(caller)) {
+      rejectRateLimited(reply, watchMutationLimiter, caller, 'watch mutation rate limit exceeded');
     }
     const spec = parseCreateWatchBody(req.body, allowHosts, config.publicBaseUrl);
     const id = crypto.randomUUID();
@@ -97,8 +100,9 @@ export function registerWatchRoutes(app: FastifyInstance, deps: AppDeps): void {
   });
 
   app.delete('/v1/watches/:id', async (req, reply) => {
-    if (!watchMutationLimiter.allow(req.ip)) {
-      rejectRateLimited(reply, watchMutationLimiter, req.ip, 'watch mutation rate limit exceeded');
+    const caller = clientIpOf(req);
+    if (!watchMutationLimiter.allow(caller)) {
+      rejectRateLimited(reply, watchMutationLimiter, caller, 'watch mutation rate limit exceeded');
     }
     const id = watchIdOf(req);
     if (!repo.delete(id)) throw new HttpError(404, 'not_found', 'watch not found');

@@ -217,3 +217,58 @@ describe('rolling free allowance — batch ceiling', () => {
     }
   });
 });
+
+describe('rolling free allowance — one window per caller', () => {
+  // Behind the tunnel every request has the same socket peer, so keying on
+  // req.ip made the window fleet-wide: 50 calls/day for the entire internet,
+  // spent by crawlers before a real agent could try anything.
+  const throughTunnel = (h: Harness, ip: string) =>
+    h.app.inject({
+      method: 'POST',
+      url: '/v1/x402/capture',
+      headers: { 'cf-connecting-ip': ip },
+      remoteAddress: '172.21.0.1',
+      payload: CAPTURE_BODY,
+    });
+
+  it('gives each forwarded caller its own window', async () => {
+    const h = harness({ allowanceCalls: 1, allowanceWindowHours: 24 });
+    try {
+      const first = await throughTunnel(h, '203.0.113.7');
+      expect(first.statusCode).toBe(200);
+      expect(first.headers['x-webcap-allowance-remaining']).toBe('0');
+
+      // A different agent through the same tunnel is not locked out by the first.
+      const second = await throughTunnel(h, '198.51.100.9');
+      expect(second.statusCode).toBe(200);
+
+      // And the first agent really has spent its own window.
+      const again = await throughTunnel(h, '203.0.113.7');
+      expect(again.statusCode).toBe(402);
+      expect(again.headers['x-webcap-allowance-granted']).toBe('false');
+    } finally {
+      await close(h);
+    }
+  });
+
+  it('ignores a forwarded address sent by a public peer', async () => {
+    const h = harness({ allowanceCalls: 1, allowanceWindowHours: 24 });
+    try {
+      // A directly-connected caller must not be able to name its own address to
+      // mint a fresh bucket per request.
+      const spoof = (ip: string) =>
+        h.app.inject({
+          method: 'POST',
+          url: '/v1/x402/capture',
+          headers: { 'cf-connecting-ip': ip },
+          remoteAddress: '198.51.100.1',
+          payload: CAPTURE_BODY,
+        });
+      expect((await spoof('10.0.0.1')).statusCode).toBe(200);
+      // Same real peer, different claimed address: still the same spent bucket.
+      expect((await spoof('10.0.0.2')).statusCode).toBe(402);
+    } finally {
+      await close(h);
+    }
+  });
+});

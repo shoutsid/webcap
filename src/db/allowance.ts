@@ -150,15 +150,30 @@ export function makeAllowanceRepo(db: Db): AllowanceRepo {
 }
 
 /**
- * Per-deployment salt for IP hashing. In-memory on purpose: a restart rotates
- * it, so hashes cannot be joined across restarts, and nothing about a caller's
- * address is recoverable from storage.
+ * Fallback salt, used when no stable deployment secret is configured (tests and
+ * hand-built configs). It is per-process, so it rotates on restart — which is
+ * fine for a test and wrong for a deployment, where it silently hands every
+ * caller a fresh window after every deploy. Production passes `keyFor` built by
+ * {@link stableAllowanceKey} instead.
  */
 const ALLOWANCE_SALT = randomBytes(16);
 
-/** Stable, non-reversible bucket key for a caller address. */
+/** Non-reversible bucket key for a caller address, salted by this process. */
 export function allowanceKey(ip: string): string {
   return createHash('sha256').update(`${ALLOWANCE_SALT.toString('hex')}:${ip}`).digest('hex');
+}
+
+/**
+ * A key function salted by a *stable* deployment secret, so buckets survive a
+ * restart and the funnel's distinct-caller count is comparable across deploys.
+ *
+ * The secret is hashed once and never stored or logged, and the caller's
+ * address still only ever reaches storage as a hash — this changes the salt's
+ * lifetime, not what is recorded.
+ */
+export function stableAllowanceKey(secret: string): (ip: string) => string {
+  const salt = createHash('sha256').update(`webcap-allowance-salt:${secret}`).digest('hex');
+  return (ip: string) => createHash('sha256').update(`${salt}:${ip}`).digest('hex');
 }
 
 export interface AllowanceGate {
@@ -173,6 +188,12 @@ export interface AllowanceGate {
    * redeploying.
    */
   readonly globalWindowLimit: number;
+  /**
+   * Maps a caller address to its bucket key. Omit it (tests, hand-built configs)
+   * to use the per-process salt; a deployment passes {@link stableAllowanceKey}
+   * so buckets survive a restart.
+   */
+  readonly keyFor?: (ip: string) => string;
 }
 
 /**
@@ -186,7 +207,7 @@ export interface AllowanceGate {
  */
 export function prepareAllowance(gate: AllowanceGate, ip: string, cost = 1): PreparedAllowance {
   const { repo, limit, windowMs, globalWindowLimit } = gate;
-  const key = allowanceKey(ip);
+  const key = (gate.keyFor ?? allowanceKey)(ip);
   const used = repo.used(key, windowMs);
   const cost2 = Math.max(1, Math.trunc(cost));
   const waitSeconds = (): number => Math.max(1, Math.ceil(repo.retryAfterMs(key, windowMs) / 1000));

@@ -19,6 +19,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { isRecord } from '../util/type-guards.js';
 import { HttpError, unprocessable } from '../util/errors.js';
 import { RateLimiter, rejectRateLimited } from '../util/ratelimit.js';
+import { clientIpOf } from '../util/client-ip.js';
 import { authenticate } from './auth.js';
 import { FEEDBACK_CATEGORIES, type FeedbackCategory, insertFeedback, listFeedback } from '../db/feedback.js';
 import { normalizeUserAgent } from '../db/hits.js';
@@ -88,13 +89,13 @@ function wantsHtml(req: FastifyRequest): boolean {
 }
 
 export function registerFeedbackRoutes(app: FastifyInstance, deps: AppDeps): void {
-  // Process-local limiter keyed by client ip, like every other free-route
-  // limiter in this codebase (src/util/ratelimit.ts).
+  // Process-local limiter keyed by caller, like every other free-route limiter
+  // in this codebase (src/util/ratelimit.ts).
   const limiter = new RateLimiter(FEEDBACK_LIMIT, FEEDBACK_WINDOW_MS);
   app.post('/v1/feedback', async (req, reply) => {
     // Rate limit before doing any work: a full-rate spoofed caller must still
     // be able to read the limiter's 429 without burning a write.
-    const key = typeof req.ip === 'string' ? `ip:${req.ip}` : 'ip:unknown';
+    const key = `ip:${clientIpOf(req)}`;
     if (!limiter.allow(key)) {
       throw rejectRateLimited(reply, limiter, key, 'feedback rate limit exceeded — try again shortly');
     }

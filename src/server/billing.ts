@@ -7,6 +7,7 @@
  * routes.ts as a pure function move (no behavior change).
  */
 import type { FastifyInstance } from 'fastify';
+import { clientIpOf } from '../util/client-ip.js';
 import { getAddress, Wallet, ZeroAddress } from 'ethers';import {
   CAPTURE_COST_CREDITS,
   DEFAULT_CREDITS,
@@ -70,8 +71,9 @@ export function registerBillingRoutes(app: FastifyInstance, deps: AppDeps): void
   const registerLimiter = new RateLimiter(REGISTER_RATE_LIMIT, RATE_LIMIT_WINDOW_MS);
 
   app.post('/v1/register', async (req, reply) => {
-    if (!registerLimiter.allow(req.ip)) {
-      rejectRateLimited(reply, registerLimiter, req.ip, 'registration rate limit exceeded', registerHint(config));
+    const caller = clientIpOf(req);
+    if (!registerLimiter.allow(caller)) {
+      rejectRateLimited(reply, registerLimiter, caller, 'registration rate limit exceeded', registerHint(config));
     }
     const raw = isRecord(req.body) ? req.body.address : undefined;
     if (typeof raw !== 'string') throw unprocessable('address is required', registerHint(config));

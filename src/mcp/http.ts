@@ -36,6 +36,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebcapConfig } from '../config.js';
 import { handleRpc, declareProtocolVersion, MCP_SERVER_VERSION, type McpHttp, type McpResponse } from './server.js';
+import { clientIpOf } from '../util/client-ip.js';
 
 /**
  * The HTTP seam over this same app: in-process, so no network or loopback port.
@@ -47,6 +48,10 @@ import { handleRpc, declareProtocolVersion, MCP_SERVER_VERSION, type McpHttp, ty
  * one shared bucket for every MCP host on the internet, and forwarding the
  * user agent keeps `endpoint_hits` attribution honest (attribution is the reach
  * metric, and "unknown" would erase this whole transport from it).
+ *
+ * The address forwarded is `clientIpOf(req)`, not `req.ip`: behind the tunnel
+ * the raw peer is the gateway for every caller, so forwarding it would give
+ * every MCP host on the internet the one bucket this comment exists to avoid.
  */
 function selfClient(app: FastifyInstance, forward: { readonly remoteAddress?: string; readonly userAgent?: string }): McpHttp {
   return {
@@ -127,7 +132,7 @@ export function registerMcpHttpRoute(app: FastifyInstance, config: WebcapConfig)
       baseUrl: config.publicBaseUrl,
       version: MCP_SERVER_VERSION,
       http: selfClient(app, {
-        ...(typeof req.ip === 'string' ? { remoteAddress: req.ip } : {}),
+        remoteAddress: clientIpOf(req),
         ...(typeof userAgent === 'string' ? { userAgent } : {}),
       }),
       canPay: false,
