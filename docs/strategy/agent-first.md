@@ -69,7 +69,10 @@ genuinely external, if tiny, customer signal. Of the 6 `trial_claims` rows, one
 2026-09-24 (04:56:36.730Z, 04:56:37.268Z, 04:56:37.594Z, sweeping
 audit/extract/capture), the signature of our own `node` harness rather than
 three independent agents. Six therefore overstates genuine external trial
-interest. The 3 `invoices` rows all belong to account_id 2, the hardhat dev
+interest. **The trial rail itself was retired on 2026-10-06** — wallet-signed
+claims were friction a bot could not clear, so free access is now a rolling
+per-IP allowance (`allowance_uses`), whose grants are the funnel's no-cost
+step. The `trial_claims` numbers above are frozen history, not a live signal. The 3 `invoices` rows all belong to account_id 2, the hardhat dev
 account `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`; their status is `open`
 but they are long expired, so they are not customer invoices.
 
@@ -189,8 +192,8 @@ put webcap where funded agents already run — MCP registries, agent frameworks,
 tool manifests, and the directories those runtimes read; (b) shrink the
 distance from "agent sees the endpoint" to "agent's first settled call" (free
 trials that need only a signature, MPP as a second rail, prepaid credit packs);
-and (c) measure all of it from `revenue_ledger` and `trial_claims` rather than
-from hit counts. Everything else — human marketing, landing-page polish, probe
+and (c) measure all of it from `revenue_ledger` and `allowance_uses` rather
+than from hit counts. Everything else — human marketing, landing-page polish, probe
 optimisation — is out of scope until a paying agent loop exists.
 
 ---
@@ -201,7 +204,7 @@ Every new owner of webcap (agent or human) must:
 
 1. **Read this charter first.** It supersedes dated plans.
 2. **Start from the evidence**, not from the previous plan's optimism:
-   `/v1/status`, `revenue_ledger`, `trial_claims`, and
+   `/v1/status`, `revenue_ledger`, `allowance_uses`, and
    `endpoint_hits.user_agent`.
 3. **Keep exactly one strategy source of truth** — this file. Update its
    evidence section when the numbers move; do not fork a new master plan.

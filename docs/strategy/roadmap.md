@@ -20,9 +20,10 @@ The product already has excellent agent surfaces; one operational gap remains.
       LLM actually reads never mentioned it — an MPP-native agent read the
       x402-only story and left. *Shipped in this takeover.*
 - [x] **Agent-income funnel analytics.** Shipped: `GET /v1/agent-funnel`
-      (public, aggregate-only) reports reach → challenge → trial → paid →
-      retention → recurring in one call, derived from `endpoint_hits` (with
-      `user_agent` attribution), `trial_claims`, `revenue_ledger`, `watches`.
+      (public, aggregate-only) reports reach → challenge → free allowance →
+      paid → retention → recurring in one call, derived from `endpoint_hits`
+      (with `user_agent` attribution), `allowance_uses`, `revenue_ledger`,
+      `watches`.
       Replaces the dead human path (`/v1/funnel`) as the number that matters.
       *Acceptance met: distinct paying wallets and client reach are one request
       away, no SQL.*
@@ -238,8 +239,14 @@ Goal: one funded agent, calling unattended, more than once.
       form, hashed payer storage, the rate limit and the merchant-only list.*
       *Remaining: none for the channel itself; the value is whatever the
       feedback says — read it.*
-- [~] **Shorten trial → first pay.** Shipped: every free surface now hands
-      over the paid path instead of dead-ending. `GET /v1/x402/trial/status`
+- [~] **Shorten trial → first pay.** *Superseded 2026-10-06: the
+      wallet-signed trial rail this bullet describes was retired for the rolling
+      free allowance above, so `/v1/x402/trial/status`, the trial receipts and
+      `trial_claims` no longer exist. The live form of "shorten the distance to
+      first pay" is the allowance's `x-webcap-allowance-*` headers plus the
+      `howToPay` block on every paid surface. Kept as record.* Shipped: every
+      free surface now hands over the paid path instead of dead-ending.
+      `GET /v1/x402/trial/status`
       always returns the full priced catalog (`paid`), the x402 payment flow
       (`howToPay`, with the same scheme/network/asset/payTo the 402 challenge
       carries), a concrete `nextStep`, and the recurring watch path — the case

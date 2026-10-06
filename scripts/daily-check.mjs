@@ -130,10 +130,26 @@ function revenue(db, start, end) {
   };
 }
 
-function trials(db, start, end) {
-  const life = qRow(db, 'SELECT COUNT(*) n, COUNT(DISTINCT payer) wallets FROM trial_claims');
-  const day = qRow(db, 'SELECT COUNT(*) n, COUNT(DISTINCT payer) wallets FROM trial_claims WHERE created_at >= ? AND created_at < ?', start, end);
-  return { lifetime: life.n ?? 0, lifetimeWallets: life.wallets ?? 0, day: day.n ?? 0, dayWallets: day.wallets ?? 0 };
+/**
+ * The free rail: the rolling per-IP allowance that replaced wallet-signed
+ * trials. `allowance_uses` holds only the live window (rows are pruned
+ * opportunistically on every check), so there is deliberately no lifetime
+ * number here — read these as "free calls granted recently", never "ever".
+ */
+function allowance(db, start, end) {
+  const day = qRow(
+    db,
+    'SELECT COALESCE(SUM(cost), 0) n, COUNT(DISTINCT ip_hash) callers FROM allowance_uses WHERE ts >= ? AND ts < ?',
+    start,
+    end,
+  );
+  const held = qRow(db, 'SELECT COALESCE(SUM(cost), 0) n, COUNT(DISTINCT ip_hash) callers FROM allowance_uses');
+  return {
+    dayGrants: day.n ?? 0,
+    dayCallers: day.callers ?? 0,
+    heldGrants: held.n ?? 0,
+    heldCallers: held.callers ?? 0,
+  };
 }
 
 function feedback(db, start, end) {
@@ -206,7 +222,7 @@ function trend(db, date, days) {
       hits: qRow(db, 'SELECT COUNT(*) n FROM endpoint_hits WHERE created_at >= ? AND created_at < ?', start, end).n ?? 0,
       paid: qRow(db, 'SELECT COUNT(*) n FROM revenue_ledger WHERE created_at >= ? AND created_at < ?', start, end).n ?? 0,
       revenue: qRow(db, 'SELECT COALESCE(SUM(revenue_usdc),0) n FROM revenue_ledger WHERE created_at >= ? AND created_at < ?', start, end).n ?? 0,
-      trials: qRow(db, 'SELECT COUNT(*) n FROM trial_claims WHERE created_at >= ? AND created_at < ?', start, end).n ?? 0,
+      allowance: qRow(db, 'SELECT COALESCE(SUM(cost), 0) n FROM allowance_uses WHERE ts >= ? AND ts < ?', start, end).n ?? 0,
       feedback: qRow(db, 'SELECT COUNT(*) n FROM feedback WHERE created_at >= ? AND created_at < ?', start, end).n ?? 0,
     });
   }
@@ -224,7 +240,7 @@ function buildReport(db, args) {
     days: args.days,
     overview: overview(db, start, end),
     revenue: revenue(db, start, end),
-    trials: trials(db, start, end),
+    allowance: allowance(db, start, end),
     feedback: feedback(db, start, end),
     watches: watches(db, start, end),
     endpoints: endpoints(db, start, end),
@@ -236,7 +252,10 @@ function buildReport(db, args) {
   const f = r.flags;
   if (r.revenue.dayCalls > 0) f.push(`$${usdc(r.revenue.dayUsdcUnits)} from ${r.revenue.dayCalls} paid call(s) today — revenue!`);
   if (r.revenue.repeatWallets > 0) f.push(`${r.revenue.repeatWallets} repeat buyer wallet(s) lifetime`);
-  if (r.trials.day > 0) f.push(`${r.trials.day} trial claim(s) today (${r.trials.dayWallets} wallet(s))`);
+  if (r.allowance.dayGrants > 0)
+    f.push(
+      `${r.allowance.dayGrants} free allowance grant(s) today (${r.allowance.dayCallers} caller(s)) — the last no-cost step before paid`,
+    );
   if (r.feedback.day > 0) f.push(`${r.feedback.day} feedback submission(s) today — read the latest below`);
   if (r.overview.fivexx.length > 0)
     f.push(`5xx today: ${r.overview.fivexx.map((x) => `${x.status}×${x.n}`).join(', ')}`);
@@ -271,9 +290,9 @@ function renderText(r) {
   }
 
   L.push('');
-  L.push('TRIALS (trial_claims)');
-  row('today', `${r.trials.day} (${r.trials.dayWallets} wallet(s))`);
-  row('lifetime', r.trials.lifetime);
+  L.push('FREE ALLOWANCE (allowance_uses — live window only, no lifetime)');
+  row('today', `${r.allowance.dayGrants} grant(s) from ${r.allowance.dayCallers} caller(s)`);
+  row('still in table', `${r.allowance.heldGrants} grant(s) from ${r.allowance.heldCallers} caller(s)`);
 
   L.push('');
   L.push(`FEEDBACK (${r.feedback.lifetime} lifetime, ${r.feedback.day} today)`);
@@ -302,8 +321,8 @@ function renderText(r) {
   for (const c of r.challengers) row(truncate(c.user_agent, 44), c.n);
 
   L.push('');
-  L.push('TREND (hits | paid | $usdc | trials | feedback)');
-  for (const t of r.trend) row(t.date, `${pad(t.hits)} | ${pad(t.paid)} | ${usdc(t.revenue).padStart(8)} | ${pad(t.trials)} | ${pad(t.feedback)}`);
+  L.push('TREND (hits | paid | $usdc | free | feedback)');
+  for (const t of r.trend) row(t.date, `${pad(t.hits)} | ${pad(t.paid)} | ${usdc(t.revenue).padStart(8)} | ${pad(t.allowance)} | ${pad(t.feedback)}`);
 
   L.push('');
   L.push('='.repeat(70));

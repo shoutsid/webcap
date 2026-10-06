@@ -19,7 +19,7 @@ Standing rules every agent or human owner must follow:
    `/v1/x402/service`) must agree on paths, methods, prices, and the payment
    flow. A surface that lies to an agent costs a real call.
 3. A change is not done until its effect is measurable in `revenue_ledger`,
-   `trial_claims`, or `endpoint_hits` attribution (see
+   `allowance_uses`, or `endpoint_hits` attribution (see
    `docs/strategy/metrics.md`).
 4. Never introduce friction a bot cannot clear (accounts, email, waitlists,
    CAPTCHAs, sales contact) into the paid path.
@@ -90,8 +90,8 @@ npm run typecheck  # Type checking only
 docker cp scripts/daily-check.mjs webcap-webcap-1:/app/daily-check.mjs
 docker exec -w /app webcap-webcap-1 node daily-check.mjs
 ```
-Prints the day's endpoint hits, x402 challenges, 5xx, revenue/trials/feedback
-lifecycle and a 7-day trend straight from the live DB, ending with an
+Prints the day's endpoint hits, x402 challenges, 5xx, revenue/free-allowance/
+feedback lifecycle and a 7-day trend straight from the live DB, ending with an
 ATTENTION block for anything that needs a reaction. Runs readonly; flags
 `--db <path>`, `--date YYYY-MM-DD`, `--days N`, `--json` (see the script
 header). Add new sections as plain functions in `scripts/daily-check.mjs`.
