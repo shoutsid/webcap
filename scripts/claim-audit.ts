@@ -12,7 +12,16 @@
  *   1. every `METHOD /path` the docs advertise actually exists (not 404/5xx);
  *   2. every price the docs advertise equals the 402 challenge amount;
  *   3. a price-bearing endpoint challenges when unpaid (it is not secretly free);
- *   4. the free trial menu advertises the same prices as the paid routes.
+ *   4. the /v1/x402/service descriptor quotes the same prices as the live
+ *      challenges.
+ *
+ * One thing about the paid path is load-bearing here. The rolling free
+ * allowance answers an unpaid POST with 200 (it runs the real product), so
+ * probing priced routes without a payment header would both miss the challenge
+ * and spend the caller's free budget on a real capture. The audit instead
+ * sends a deliberately unusable payment header on x402 routes: the allowance is
+ * only granted to callers that brought no payment, so the paywall answers the
+ * 402 challenge and no product is ever run.
  *
  * Usage:
  *   npx tsx scripts/claim-audit.ts                      # localhost:8080
@@ -26,9 +35,22 @@ import { resolve } from 'node:path';
 
 const TIMEOUT_MS = 15_000;
 const USDC_SCALE = 1_000_000;
-/** Address used for wallet-scoped GETs; a valid shape the service will answer. */
-const PROBE_PAYER = '0x0000000000000000000000000000000000000001';
 const PROBE_URL = 'https://example.com/';
+
+/**
+ * Forces a request down the paid path. The rolling free allowance is granted
+ * only to callers that brought no payment (src/server/allowance-gate.ts), so a
+ * request carrying any payment header is never granted it. Sending a
+ * deliberately unusable one makes the paywall answer the 402 challenge — which
+ * is what this audit needs to read a price, without running the product or
+ * spending the caller's free budget.
+ */
+const ALLOWANCE_BYPASS: Readonly<Record<string, string>> = { 'payment-signature': 'claim-audit-probe' };
+
+/** Routes the x402 middleware gates, where an unpaid call may be allowance-granted. */
+export function isX402Path(path: string): boolean {
+  return path.startsWith('/v1/x402/') || path.startsWith('/v1/capture/jobs');
+}
 
 export interface EndpointClaim {
   readonly method: 'GET' | 'POST' | 'DELETE' | 'PUT';
@@ -43,6 +65,28 @@ export interface PriceClaim {
   readonly path: string;
   readonly usd: number;
   readonly source: string;
+}
+
+/** One row of GET /v1/x402/service's `paidEndpoints`, the second price surface. */
+export interface ServiceEndpoint {
+  readonly path: string;
+  readonly priceUsdc: number;
+}
+
+/** Read the prices the service descriptor advertises, so they can be cross-checked. */
+export function extractServicePrices(json: unknown): ServiceEndpoint[] {
+  if (typeof json !== 'object' || json === null) return [];
+  const paid = (json as { paidEndpoints?: unknown }).paidEndpoints;
+  if (!Array.isArray(paid)) return [];
+  const out: ServiceEndpoint[] = [];
+  for (const raw of paid) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const entry = raw as { path?: unknown; priceUsdc?: unknown };
+    const priceUsdc = Number(entry.priceUsdc);
+    if (typeof entry.path !== 'string' || !Number.isFinite(priceUsdc)) continue;
+    out.push({ path: entry.path, priceUsdc });
+  }
+  return out;
 }
 
 /** Env-var price rows in the README's configuration table -> the route they price. */
@@ -123,8 +167,6 @@ export function extractEnvPriceClaims(text: string, source: string): PriceClaim[
 /** Query params a route needs before it will answer (documented in the same tables). */
 const REQUIRED_QUERY: Readonly<Record<string, string>> = {
   '/v1/extract/preview': `url=${PROBE_URL}`,
-  '/v1/x402/trial/quick': `url=${PROBE_URL}`,
-  '/v1/x402/trial/status': `payer=${PROBE_PAYER}`,
 };
 
 interface CheckResult {
@@ -147,13 +189,16 @@ async function request(
 ): Promise<{ status: number; json: unknown; text: string }> {
   const query = REQUIRED_QUERY[claim.path];
   const url = `${baseUrl}${claim.path}${query !== undefined ? `?${query}` : ''}`;
+  const bypass = isX402Path(claim.path);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const init: RequestInit = { method: claim.method, signal: controller.signal };
     if (claim.method === 'POST' || claim.method === 'PUT') {
-      init.headers = { 'content-type': 'application/json' };
+      init.headers = { 'content-type': 'application/json', ...(bypass ? ALLOWANCE_BYPASS : {}) };
       init.body = JSON.stringify(body ?? { url: PROBE_URL });
+    } else if (bypass) {
+      init.headers = { ...ALLOWANCE_BYPASS };
     }
     const res = await fetch(url, init);
     const text = await res.text();
@@ -283,27 +328,21 @@ async function main(): Promise<void> {
     });
   }
 
-  // The free menu must quote the same prices the paid routes do.
-  const menu = await request(baseUrl, { method: 'GET', path: '/v1/x402/trial/status' }).catch(() => null);
-  const menuPaid = (() => {
-    if (menu === null || typeof menu.json !== 'object' || menu.json === null) return [];
-    const paid = (menu.json as { paid?: unknown }).paid;
-    return Array.isArray(paid)
-      ? (paid as Array<{ endpoint?: string; priceUsdc?: number }>)
-      : [];
-  })();
-  for (const entry of menuPaid) {
-    const path = (entry.endpoint ?? '').replace(/^POST\s+/, '');
-    const challenge = challenges.get(path);
+  // Cross-surface agreement (charter rule 2): the service descriptor is a
+  // second machine-readable surface, so the prices it advertises must equal the
+  // challenges this audit just read.
+  const service = await request(baseUrl, { method: 'GET', path: '/v1/x402/service' }).catch(() => null);
+  for (const entry of extractServicePrices(service?.json)) {
+    const challenge = challenges.get(entry.path);
     if (challenge === undefined) continue;
     const ok = entry.priceUsdc === challenge.amountUsdc;
     results.push({
-      claim: `trial menu quotes ${path}`,
-      source: 'GET /v1/x402/trial/status',
+      claim: `service descriptor quotes ${entry.path}`,
+      source: 'GET /v1/x402/service',
       ok,
       detail: ok
         ? `$${entry.priceUsdc} matches the challenge`
-        : `menu says $${entry.priceUsdc}, challenge asks $${challenge.amountUsdc}`,
+        : `service says $${entry.priceUsdc}, challenge asks $${challenge.amountUsdc}`,
     });
   }
 

@@ -11,6 +11,8 @@ import {
   extractEndpointClaims,
   extractEnvPriceClaims,
   extractPriceClaims,
+  extractServicePrices,
+  isX402Path,
   PRICE_ENV_TO_PATH,
 } from '../../scripts/claim-audit.js';
 
@@ -88,6 +90,34 @@ describe('claim audit parsers', () => {
     for (const [envVar, path] of Object.entries(PRICE_ENV_TO_PATH)) {
       expect(routeSources, `${envVar} maps to ${path}, which is not a served route`).toContain(path);
     }
+  });
+
+  it('reads paid prices from the service descriptor and ignores malformed rows', () => {
+    const json = {
+      paidEndpoints: [
+        { method: 'POST', path: '/v1/x402/capture', priceUsdc: 0.001, atomicUnits: '1000' },
+        { method: 'POST', path: '/v1/x402/extract', priceUsdc: 0.01 },
+        { path: '/v1/x402/audit' }, // no price
+        { priceUsdc: 0.002 }, // no path
+        'nonsense',
+      ],
+    };
+    expect(extractServicePrices(json)).toEqual([
+      { path: '/v1/x402/capture', priceUsdc: 0.001 },
+      { path: '/v1/x402/extract', priceUsdc: 0.01 },
+    ]);
+    expect(extractServicePrices({})).toEqual([]);
+    expect(extractServicePrices(null)).toEqual([]);
+  });
+
+  it('probes every priced route down the paid path, not the free allowance', () => {
+    // The allowance answers an unpaid POST with 200, so a priced route probed
+    // without the bypass header would report a false failure and burn the
+    // caller's free budget on a real product call.
+    for (const path of Object.values(PRICE_ENV_TO_PATH)) {
+      expect(isX402Path(path), `${path} must be probed down the paid path`).toBe(true);
+    }
+    expect(isX402Path('/v1/feedback')).toBe(false);
   });
 
   it('covers every price the README documents in its configuration table', () => {
