@@ -2,9 +2,9 @@
 
 Covers the failure mode seen on 2026-10-06: the app stops serving while
 `docker ps` still reports the container as running. There is **no automation
-here on purpose** — the host health/backup cron jobs were retired because they
-caused disk problems (see `bin/webcap-backup.sh`, removed on 2026-10-06).
-Detection is the manual daily check.
+here on purpose** — the host health and sqlite-backup cron jobs were retired on
+2026-10-06 because they caused disk problems on the operator's machine, and
+the backup script was deleted with them. Detection is the manual daily check.
 
 ## 1. Confirm the symptom
 
