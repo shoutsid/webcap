@@ -106,6 +106,19 @@ function overview(db, start, end) {
   };
 }
 
+/**
+ * Freshness: how long ago the newest recorded hit was. The failure mode that
+ * cost a day (2026-10-06) is a container that stays "running" while wedged —
+ * it stops recording hits without ever exiting, so no restart policy fires.
+ * The gap since the newest hit is the cheapest downtime signal the DB holds.
+ */
+function freshness(db) {
+  const newest = qRow(db, 'SELECT MAX(created_at) newest FROM endpoint_hits').newest ?? null;
+  if (newest === null) return { newest: null, ageHours: null };
+  const ageMs = Date.now() - Date.parse(newest);
+  return { newest, ageHours: Number.isFinite(ageMs) ? Math.round((ageMs / 3_600_000) * 10) / 10 : null };
+}
+
 function revenue(db, start, end) {
   const life = qRow(db, 'SELECT COUNT(*) n, COUNT(DISTINCT payer) wallets, COALESCE(SUM(revenue_usdc),0) revenue, COALESCE(SUM(cost_usdc),0) cost FROM revenue_ledger');
   const day = qRow(db, 'SELECT COUNT(*) n, COUNT(DISTINCT payer) wallets, COALESCE(SUM(revenue_usdc),0) revenue FROM revenue_ledger WHERE created_at >= ? AND created_at < ?', start, end);
@@ -239,6 +252,7 @@ function buildReport(db, args) {
     date: args.date,
     days: args.days,
     overview: overview(db, start, end),
+    freshness: freshness(db),
     revenue: revenue(db, start, end),
     allowance: allowance(db, start, end),
     feedback: feedback(db, start, end),
@@ -260,6 +274,16 @@ function buildReport(db, args) {
   if (r.overview.fivexx.length > 0)
     f.push(`5xx today: ${r.overview.fivexx.map((x) => `${x.status}×${x.n}`).join(', ')}`);
   if (r.overview.hits === 0 && r.days === 1) f.push('zero endpoint hits for the day — is the host reachable?');
+  // Only meaningful for the current day: a historical --date is stale by design.
+  if (
+    args.days === 1 &&
+    args.date === new Date().toISOString().slice(0, 10) &&
+    r.freshness.ageHours !== null &&
+    r.freshness.ageHours > 2
+  )
+    f.push(
+      `no endpoint hits for ${r.freshness.ageHours}h — the API may be down or wedged; see docs/operations/incident-api-down.md`,
+    );
   if (r.overview.challenges402 > 0) f.push(`${r.overview.challenges402} x402 challenge(s) served today (demand signal)`);
   if (r.endpoints.mcpTotal > 0) f.push(`POST /mcp ${r.endpoints.mcpTotal}× (${Object.entries(r.endpoints.mcp).map(([s, n]) => `${s}×${n}`).join(', ')})`);
   return r;
@@ -278,6 +302,10 @@ function renderText(r) {
   row('endpoint_hits', `${r.overview.hits} (${r.overview.distinctUas} user agents)`);
   row('x402 challenges', r.overview.challenges402);
   row('5xx', r.overview.fivexx.length ? r.overview.fivexx.map((x) => `${x.status}×${x.n}`).join(', ') : '0');
+  row(
+    'newest hit',
+    r.freshness.newest === null ? 'none recorded' : `${r.freshness.newest} (${r.freshness.ageHours}h ago)`,
+  );
 
   L.push('');
   L.push('REVENUE (revenue_ledger)');

@@ -10,7 +10,8 @@ referenced by the front-door `agentGuide` label). Everything else lives here.
     decision rules. Supersedes every dated plan.
   - `roadmap.md` — what to build next, sequenced by paid agent calls.
   - `metrics.md` — the agent-income funnel and how to query it.
-- `operations/` — runbooks: `domain-cutover.md` (ngrok → stable domain),
+- `operations/` — runbooks: `incident-api-down.md` (the API is down or the
+  container is wedged), `domain-cutover.md` (ngrok → stable domain),
   `production-checklist.md` (deploy checklist).
 - `protocols/` — `mpp.md` (Machine Payments Protocol support, shipped shape).
 - `research/` — `ml-research-and-roadmap.md` (market + ML feature research),
