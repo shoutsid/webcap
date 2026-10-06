@@ -25,9 +25,10 @@
  *      URLs are uncapped inside the window. The free rail therefore never gives
  *      away more compute than the paid call would have cost.
  *
- * Privacy: the bucket key is a salted hash of the IP (same scheme as the old
- * faucet), never the address itself. The salt is per-deployment and in-memory,
- * so hashes are not comparable across restarts or deployments.
+ * Privacy: the bucket key is a salted hash of the caller address, never the
+ * address itself. A deployment salts it with a configured secret, so hashes are
+ * not comparable across deployments and a restart no longer resets a caller's
+ * window (see stableAllowanceKey).
  *
  * Sybil honesty: an IP is not an identity. A caller with proxies can mint
  * windows. That is an accepted cost of removing wallet friction, and it is why
